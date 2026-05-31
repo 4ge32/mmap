@@ -21,6 +21,15 @@
   // prot is a subset of the legal protection bits.
   predicate acsl_prot_ok(integer prot) = (prot & ~PROT_ALL) == 0;
 
+  // Arithmetic-guard predicates, mirrored by the C helpers in vma.c. ACSL
+  // terms cannot call C functions, so contracts reference these instead.
+  // a + b would overflow uint64_t.
+  predicate acsl_add_overflows(integer a, integer b) = a + b > UINT64_MAX;
+
+  // Rounding len up to the next page multiple would overflow uint64_t.
+  predicate acsl_round_up_overflows(integer len) =
+      len + (PAGE_SIZE - 1) > UINT64_MAX;
+
   // A single VMA at index k of `as` is internally well-formed.
   predicate acsl_vma_ok(struct addr_space *as, integer k) =
       0 <= k < as->count &&

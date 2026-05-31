@@ -20,18 +20,26 @@ runtime test suite, not by WP (see `docs/design.md` §B.2).
 ## Running
 
 ```sh
-make proof
+make proof          # full WP proofs if WP is present; else parse+RTE fallback
+make proof-parse    # ACSL parse + RTE generation only (needs just frama-c-base)
 ```
 
-`make proof` SKIPs cleanly (exit 0, prints `[SKIP]`) when `frama-c` is not on
-PATH, so the build+test loop is never blocked by a missing prover. When the
-prover is present it fails on any unproven goal.
+`make proof` has three tiers, chosen automatically:
 
-Direct invocation:
+1. **`frama-c` absent** → `[SKIP]` (exit 0). The build+test loop is never
+   blocked by a missing prover.
+2. **`frama-c` present but WP plugin absent** → runs `make proof-parse`, which
+   parses and type-checks every ACSL contract and generates the RTE
+   obligations. This catches malformed annotations even without a prover, and
+   fails on any annotation error. (The Debian/Ubuntu `frama-c`/`frama-c-base`
+   package ships the kernel + RTE but **not** WP.)
+3. **WP plugin present** → full deductive proof; fails on any unproven goal.
+
+Direct invocation of the full proof:
 
 ```sh
 frama-c -machdep gcc_x86_64 -cpp-extra-args="-Iinclude -DFRAMA_C" \
-        -rte -wp -wp-rte -wp-prover alt-ergo,z3 -wp-timeout 20 \
+        -rte -wp -wp-rte -wp-prover z3,alt-ergo -wp-timeout 20 \
         src/vma.c src/addr_space.c src/mmap_ops.c proofs/wp_entry.c
 ```
 
@@ -44,6 +52,15 @@ invariant, raise `-wp-timeout`, or document the goal as test-covered in
 
 ## Toolchain
 
-Requires `frama-c` plus a prover backend (`alt-ergo` and/or `z3`). Neither is
-installed in the default web environment; `scripts/bootstrap.sh` attempts a
-best-effort install but does not fail the session if the network is restricted.
+Requires `frama-c` **with the WP plugin** plus a prover backend (`z3` and/or
+`alt-ergo`). On Ubuntu, `apt` provides only `frama-c-base` (kernel + RTE, no
+WP); the WP plugin and Alt-Ergo come via **opam** (`opam install frama-c
+alt-ergo`). The CI `proofs` job installs them this way; locally, `make proof`
+falls back to the parse+RTE check when only `frama-c-base` is available.
+
+## ACSL authoring note
+
+In `assigns`/range clauses, keep spaces around `..` range bounds and operators
+that involve macros, e.g. `assigns as->vmas[0 .. VMA_CAP - 1];`. Writing
+`VMA_CAP-1` (no spaces) can defeat macro expansion in Frama-C's separate
+annotation preprocessor and yields a spurious "unbound logic variable" error.

@@ -94,22 +94,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Frama-C and provers
+      # The Debian/Ubuntu frama-c package ships the kernel + RTE but NOT the WP
+      # plugin; WP (and Alt-Ergo) come via opam. Install that way so the full
+      # proof tier can actually run. Best-effort: the job is continue-on-error,
+      # and `make proof` falls back to an ACSL parse + RTE check if WP is still
+      # unavailable.
+      - name: Install opam + system provers
         run: |
           sudo apt-get update
-          sudo apt-get install -y frama-c z3 alt-ergo || true
+          sudo apt-get install -y opam z3 || true
 
-      - name: Detect provers (why3)
-        run: why3 config detect || true
+      - name: Install Frama-C + WP + Alt-Ergo (opam)
+        run: |
+          opam init --bare --disable-sandboxing --yes || true
+          opam switch create . ocaml-base-compiler --yes || opam switch import --yes || true
+          eval "$(opam env)"
+          opam install --yes frama-c alt-ergo || true
+          eval "$(opam env)"
+          why3 config detect || true
 
       - name: Report versions
         run: |
-          frama-c --version || echo "frama-c not installed"
+          eval "$(opam env)" || true
+          frama-c -version || echo "frama-c not installed"
+          frama-c -wp-version 2>/dev/null && echo "WP present" || echo "WP absent"
           z3 --version || true
-          alt-ergo --version || true
+          alt-ergo --version 2>/dev/null || echo "alt-ergo absent"
 
-      - name: Run WP proofs
-        run: make proof
+      - name: Run WP proofs (or ACSL parse fallback)
+        run: |
+          eval "$(opam env)" || true
+          make proof
 
   # Build a single static dashboard (test results at a glance + the job
   # dependency graph) and publish it to GitHub Pages. Deploys on main (and

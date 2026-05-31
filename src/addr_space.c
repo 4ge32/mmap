@@ -60,7 +60,7 @@ void as_find_range(const struct addr_space *as, uint64_t start, uint64_t end,
  */
 /*@
   requires \valid(as);
-  assigns as->vmas[0..VMA_CAP-1], as->count;
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
   ensures as->count <= \old(as->count);
 */
 void as_canonicalize(struct addr_space *as)
