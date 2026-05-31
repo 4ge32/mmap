@@ -12,45 +12,76 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  tests:
-    name: Build & unit tests — gcc, ASan/UBSan, clang (mandatory)
+  # One job per suite, so each shows up as its own self-explanatory status
+  # check ("CI / <title>"). Each runs the suite under gcc (emitting a JUnit
+  # report) and under ASan/UBSan, then uploads the report for test-report.
+  unit-tests:
+    name: ${{ matrix.title }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: test-vma
+            title: "VMA primitives: split/insert/remove/merge & overflow guards"
+          - target: test-mmap-ops
+            title: "mmap/mprotect/munmap operations & as_wf invariant"
+          - target: test-ldso-replay
+            title: "ld.so mapping-sequence replay (PROT_NONE reserve → MAP_FIXED segments → bss → GNU_RELRO)"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain versions
+      - name: Run suite (gcc, strict warnings) + emit JUnit
         run: |
-          gcc --version
-          clang --version
-          make --version
+          mkdir -p reports
+          JUNIT_XML=reports/${{ matrix.target }}.xml make ${{ matrix.target }}
 
-      - name: Build core (gcc, strict warnings)
-        run: make all
+      - name: Run suite under ASan/UBSan
+        run: make asan-${{ matrix.target }}
 
-      - name: "Unit tests (gcc) — VMA primitives: split/insert/remove/merge & overflow guards"
-        run: make test-vma
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.target }}
+          path: reports/${{ matrix.target }}.xml
+          if-no-files-found: error
 
-      - name: "Unit tests (gcc) — mmap/mprotect/munmap operations & as_wf invariant"
-        run: make test-mmap-ops
-
-      - name: "Unit tests (gcc) — ld.so mapping-sequence replay (PROT_NONE reserve → MAP_FIXED segments → bss → GNU_RELRO)"
-        run: make test-ldso-replay
-
-      - name: Build all unit tests under ASan/UBSan
-        run: make asan-bins
-
-      - name: "ASan/UBSan — VMA primitives & overflow guards"
-        run: ./build/test_vma
-
-      - name: "ASan/UBSan — mmap/mprotect/munmap operations & as_wf invariant"
-        run: ./build/test_mmap_ops
-
-      - name: "ASan/UBSan — ld.so mapping-sequence replay"
-        run: ./build/test_ldso_replay
-
-      - name: "Build & run all unit tests with clang (compiler-portability check)"
+  clang-portability:
+    name: clang build & all unit tests (portability)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & run all suites with clang
         run: make clean && make test CC=clang
+
+  # Consume the JUnit artifacts and publish a per-test breakdown (each test
+  # function as a row) in the Checks UI.
+  test-report:
+    name: Per-test results (Checks UI)
+    needs: unit-tests
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: junit-*
+          merge-multiple: true
+      - name: Publish JUnit results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: reports/**/*.xml
+          check_name: "Unit test results (per test)"
+          comment_mode: "off"
 
   proofs:
     name: Frama-C/WP proofs (informational)

@@ -175,12 +175,20 @@ static void test_split_atomic_on_full(void)
 
 int main(void)
 {
-    RUN_TEST(test_invalid_args);
-    RUN_TEST(test_anon_place_and_merge);
-    RUN_TEST(test_fixed_overlay_split);
-    RUN_TEST(test_mprotect_split_and_gap);
-    RUN_TEST(test_munmap_hole_and_remerge);
-    RUN_TEST(test_nonfixed_hint);
-    RUN_TEST(test_split_atomic_on_full);
+    TEST_SUITE("mmap/mprotect/munmap operations");
+    RUN_TEST(test_invalid_args,
+             "mmap rejects invalid length/prot/alignment");
+    RUN_TEST(test_anon_place_and_merge,
+             "Anonymous mmap placement & adjacent merge");
+    RUN_TEST(test_fixed_overlay_split,
+             "MAP_FIXED overlay splits the underlying reservation");
+    RUN_TEST(test_mprotect_split_and_gap,
+             "mprotect splits sub-ranges & rejects unmapped gaps");
+    RUN_TEST(test_munmap_hole_and_remerge,
+             "munmap punches holes & tolerates empty ranges");
+    RUN_TEST(test_nonfixed_hint,
+             "Non-FIXED mmap honors a free hint, else first-fit");
+    RUN_TEST(test_split_atomic_on_full,
+             "Boundary split is atomic at capacity (ENOMEM, no mutation)");
     return TEST_SUMMARY();
 }

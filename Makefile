@@ -7,7 +7,8 @@
 #                   build and run one unit-test suite (used by CI for
 #                   self-explanatory, per-suite step titles)
 #   make test-asan  run all unit tests under ASan/UBSan
-#   make asan-bins  build (only) all unit-test binaries with ASan/UBSan
+#   make asan-test-vma / asan-test-mmap-ops / asan-test-ldso-replay
+#                   run one unit-test suite under ASan/UBSan (per-suite CI job)
 #   make proof      run Frama-C/WP proofs (SKIPs cleanly if frama-c absent)
 #   make verify     run scripts/verify.sh (two-tier: tests [+ proofs])
 #   make clean
@@ -25,8 +26,8 @@ CORE_OBJ := $(CORE_SRC:.c=.o)
 TEST_SRC := tests/test_vma.c tests/test_mmap_ops.c tests/test_ldso_replay.c
 TEST_BIN := $(patsubst tests/%.c,build/%,$(TEST_SRC))
 
-.PHONY: all clean test test-vma test-mmap-ops test-ldso-replay \
-        test-asan asan-bins proof verify
+.PHONY: all clean test test-vma test-mmap-ops test-ldso-replay test-asan \
+        asan-test-vma asan-test-mmap-ops asan-test-ldso-replay proof verify
 
 all: $(CORE_OBJ)
 
@@ -58,10 +59,15 @@ test-ldso-replay: build/test_ldso_replay
 test-asan: CFLAGS += $(ASAN)
 test-asan: clean test
 
-# Build all test binaries with ASan/UBSan but do not run them, so CI can run
-# each suite as a separately-titled step against the instrumented binaries.
-asan-bins: CFLAGS += $(ASAN)
-asan-bins: clean $(TEST_BIN)
+# Per-suite ASan/UBSan run targets (one self-explanatory CI status check each).
+# Same target-specific-variable mechanism as test-asan: CFLAGS+=ASAN propagates
+# to the rebuilt binary via the prerequisite chain.
+asan-test-vma:          CFLAGS += $(ASAN)
+asan-test-vma:          clean test-vma
+asan-test-mmap-ops:     CFLAGS += $(ASAN)
+asan-test-mmap-ops:     clean test-mmap-ops
+asan-test-ldso-replay:  CFLAGS += $(ASAN)
+asan-test-ldso-replay:  clean test-ldso-replay
 
 proof:
 	@if command -v frama-c >/dev/null 2>&1; then \

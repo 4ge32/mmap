@@ -89,6 +89,8 @@ static void test_ldso_full_sequence(void)
 
 int main(void)
 {
-    RUN_TEST(test_ldso_full_sequence);
+    TEST_SUITE("ld.so mapping-sequence replay");
+    RUN_TEST(test_ldso_full_sequence,
+             "Full ld.so mapping sequence preserves as_wf at each step");
     return TEST_SUMMARY();
 }

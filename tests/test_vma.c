@@ -118,10 +118,16 @@ static void test_canonicalize(void)
 
 int main(void)
 {
-    RUN_TEST(test_arith_guards);
-    RUN_TEST(test_mergeable);
-    RUN_TEST(test_split_insert_remove);
-    RUN_TEST(test_file_split_offset);
-    RUN_TEST(test_canonicalize);
+    TEST_SUITE("VMA primitives & guards");
+    RUN_TEST(test_arith_guards,
+             "Arithmetic guards: overflow detection & page rounding");
+    RUN_TEST(test_mergeable,
+             "VMA mergeability: prot/flags/backing & file-offset contiguity");
+    RUN_TEST(test_split_insert_remove,
+             "Primitive split/insert/remove keep ordering & count");
+    RUN_TEST(test_file_split_offset,
+             "Splitting a file-backed VMA advances file_offset correctly");
+    RUN_TEST(test_canonicalize,
+             "Canonicalize merges adjacent compatible VMAs only");
     return TEST_SUMMARY();
 }
