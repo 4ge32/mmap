@@ -22,6 +22,7 @@ runtime test suite, not by WP (see `docs/design.md` §B.2).
 ```sh
 make proof          # full WP proofs if WP is present; else parse+RTE fallback
 make proof-parse    # ACSL parse + RTE generation only (needs just frama-c-base)
+make proof PROOF_REQUIRE_WP=1   # hard-fail unless the WP plugin actually ran
 ```
 
 `make proof` has three tiers, chosen automatically:
@@ -31,9 +32,16 @@ make proof-parse    # ACSL parse + RTE generation only (needs just frama-c-base)
 2. **`frama-c` present but WP plugin absent** → runs `make proof-parse`, which
    parses and type-checks every ACSL contract and generates the RTE
    obligations. This catches malformed annotations even without a prover, and
-   fails on any annotation error. (The Debian/Ubuntu `frama-c`/`frama-c-base`
-   package ships the kernel + RTE but **not** WP.)
+   fails on any annotation error. (The Ubuntu apt `frama-c` package ships the
+   kernel + RTE but **not** WP; WP comes via opam.)
 3. **WP plugin present** → full deductive proof; fails on any unproven goal.
+
+Set **`PROOF_REQUIRE_WP=1`** to turn tiers 1 and 2 into a hard failure: the
+command then errors unless the real WP plugin is present and runs. CI's
+`proofs` job uses this so a green check genuinely means WP ran — a broken
+prover install can no longer hide behind a passing parse-fallback. The job
+stays `continue-on-error` (informational) while M2 goal discharge is in
+progress.
 
 Direct invocation of the full proof:
 

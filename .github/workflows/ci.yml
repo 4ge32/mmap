@@ -94,45 +94,42 @@ jobs:
   proofs:
     name: Frama-C/WP proofs (informational)
     runs-on: ubuntu-latest
-    # Non-blocking: the proof tier is additive. The M2 contracts are authored
-    # but not all goals are discharged yet, and prover availability varies, so
-    # this job reports status without gating the workflow. Flip to a required
-    # check (or set VERIFY_REQUIRE_PROOF=1) once WP goals are fully discharged.
+    # Non-blocking: the proof tier is additive. But the job now runs the REAL
+    # WP tier — PROOF_REQUIRE_WP=1 makes a missing WP plugin a hard failure, so
+    # a green check means WP actually ran (no more silent parse-fallback hiding
+    # behind success). continue-on-error keeps it from gating the merge while
+    # M2 goal discharge is in progress.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
-      # The Debian/Ubuntu frama-c package ships the kernel + RTE but NOT the WP
-      # plugin; WP (and Alt-Ergo) come via opam. Install that way so the full
-      # proof tier can actually run. Best-effort: the job is continue-on-error,
-      # and `make proof` falls back to an ACSL parse + RTE check if WP is still
-      # unavailable.
-      - name: Install opam + system provers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y opam z3 || true
+      # The Ubuntu apt `frama-c` package ships the kernel + RTE but NOT the WP
+      # plugin; WP (and Alt-Ergo) come via opam. setup-ocaml provisions a real
+      # opam switch (the prior hand-rolled `opam switch create` was slow and
+      # silently failed behind `|| true`, so WP never actually installed).
+      - name: Set up OCaml + opam
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5"
 
-      - name: Install Frama-C + WP + Alt-Ergo (opam)
+      - name: Install Frama-C (with WP) + Alt-Ergo + Z3
         run: |
-          opam init --bare --disable-sandboxing --yes || true
-          opam switch create . ocaml-base-compiler --yes || opam switch import --yes || true
-          eval "$(opam env)"
-          opam install --yes frama-c alt-ergo || true
-          eval "$(opam env)"
+          opam install --yes frama-c alt-ergo z3
           why3 config detect || true
 
-      - name: Report versions
+      - name: Report versions (must show "WP present")
         run: |
-          eval "$(opam env)" || true
-          frama-c -version || echo "frama-c not installed"
-          frama-c -wp-version 2>/dev/null && echo "WP present" || echo "WP absent"
-          z3 --version || true
-          alt-ergo --version 2>/dev/null || echo "alt-ergo absent"
+          opam exec -- frama-c -version
+          if opam exec -- frama-c -wp-help >/dev/null 2>&1; then
+            echo "WP present"
+          else
+            echo "WP absent"
+          fi
+          opam exec -- alt-ergo --version || echo "alt-ergo absent"
+          opam exec -- z3 --version || echo "z3 absent"
 
-      - name: Run WP proofs (or ACSL parse fallback)
-        run: |
-          eval "$(opam env)" || true
-          make proof
+      - name: Run WP proofs (require WP — fail visibly if it is missing)
+        run: opam exec -- make proof PROOF_REQUIRE_WP=1
 
   # Build a single static dashboard (test results at a glance + the job
   # dependency graph) and publish it to GitHub Pages. Deploys on main (and

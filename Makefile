@@ -77,13 +77,23 @@ FRAMAC_SRC   := $(CORE_SRC) proofs/wp_entry.c
 # (the Debian frama-c-base package ships the kernel + RTE but not WP; WP comes
 # via opam). Falls back to a parse/typecheck + RTE-generation check that the
 # ACSL is well-formed, so the annotations stay verified even without a prover.
+#
+# Set PROOF_REQUIRE_WP=1 to make a missing frama-c or WP plugin a hard FAILURE
+# instead of SKIP/fallback — used in CI so a broken prover install is visible
+# (a green "proofs" job no longer hides the fact that WP never ran).
 proof:
 	@if ! command -v frama-c >/dev/null 2>&1; then \
+	    if [ "$${PROOF_REQUIRE_WP:-0}" = "1" ]; then \
+	        echo "[FAIL] PROOF_REQUIRE_WP=1 but frama-c is not on PATH"; exit 1; \
+	    fi; \
 	    echo "[SKIP] frama-c not on PATH - proof tier skipped"; \
 	elif frama-c -wp-help >/dev/null 2>&1; then \
 	    echo "== running Frama-C/WP proofs =="; \
 	    frama-c $(FRAMAC_FLAGS) -rte -wp -wp-rte \
 	        -wp-prover z3,alt-ergo -wp-timeout 20 $(FRAMAC_SRC); \
+	elif [ "$${PROOF_REQUIRE_WP:-0}" = "1" ]; then \
+	    echo "[FAIL] PROOF_REQUIRE_WP=1 but the WP plugin is not installed"; \
+	    echo "       (frama-c is present but 'frama-c -wp-help' failed)"; exit 1; \
 	else \
 	    echo "[WARN] WP plugin absent - running ACSL parse + RTE check only"; \
 	    echo "       (install Frama-C with WP via opam for full proofs)"; \
