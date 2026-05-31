@@ -5,6 +5,9 @@
 # generated test reports (JUnit XML)
 /reports/
 
+# generated Pages dashboard
+/site/
+
 # bootstrap marker (session-local)
 /.bootstrap-done
 

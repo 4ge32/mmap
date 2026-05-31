@@ -110,3 +110,44 @@ jobs:
 
       - name: Run WP proofs
         run: make proof
+
+  # Build a single static dashboard (test results at a glance + the job
+  # dependency graph) and publish it to GitHub Pages. Deploys on main (and
+  # manual dispatch); runs even if tests failed, so failures are visible too.
+  # NOTE: requires Settings -> Pages -> "Build and deployment" Source = GitHub Actions.
+  pages:
+    name: Publish results dashboard (GitHub Pages)
+    needs: [unit-tests, clang-portability, proofs]
+    if: ${{ always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JUnit reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: junit-*
+          merge-multiple: true
+
+      - name: Build dashboard
+        run: python3 tools/gen_dashboard.py --reports reports --workflow .github/workflows/ci.yml --out site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
