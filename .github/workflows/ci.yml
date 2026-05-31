@@ -118,7 +118,11 @@ jobs:
       - name: Install Frama-C (with WP) + Alt-Ergo + Z3
         run: |
           opam install --yes frama-c alt-ergo z3
-          why3 config detect || true
+          # WP discharges goals through Why3, which must detect the provers;
+          # run it inside the opam env and verify Alt-Ergo/Z3 were registered.
+          opam exec -- why3 config detect
+          echo "--- why3 provers ---"
+          opam exec -- why3 config list-provers || true
 
       - name: Report versions (must show "WP present")
         run: |
@@ -143,25 +147,42 @@ jobs:
       - name: Summarize WP goals
         if: always()
         run: |
-          # WP prints lines like "[wp] Proved goals:   42 / 50". Collect the
-          # summary + any unproved goals so the report is readable from the PR.
           python3 - <<'PY' | tee wp-report.md
           import re
           txt = open("wp-output.txt", encoding="utf-8", errors="replace").read()
-          # Keep the WP-relevant lines (summary + any unproved goal diagnostics).
-          keep = [l for l in txt.splitlines()
-                  if re.search(r"Proved goals|Qed|Alt-Ergo|Z3|Timeout|Unknown|Failed|Goal ", l)]
-          m = re.search(r"Proved goals:\s*(\d+)\s*/\s*(\d+)", txt)
+          lines = txt.splitlines()
+          # Per-goal status lines look like "[wp] Goal <name> : <status>".
+          goal = re.compile(r"\[wp\] Goal .*: (.+)$")
+          counts = {}
+          for l in lines:
+              m = goal.search(l)
+              if m:
+                  counts[m.group(1).strip()] = counts.get(m.group(1).strip(), 0) + 1
+          # WP also prints a "Proved goals: N / M" or "[wp] Proved goals" summary.
+          summ = re.search(r"Proved goals:\s*(\d+)\s*/\s*(\d+)", txt)
+          # Surface prover detection + any fatal errors.
+          notable = [l for l in lines if re.search(
+              r"Proved goals|No prover|prover|not found|User Error|Fatal|Failure|"
+              r"\[kernel\].*[Ee]rror|cannot|Unknown identifier|unbound", l)]
           print("### Frama-C/WP proof report\n")
+          if counts:
+              print("**Goal status tally:** " +
+                    ", ".join(f"`{k}`: {v}" for k, v in sorted(counts.items())) + "\n")
+          if summ:
+              print(f"**Summary:** {summ.group(1)} / {summ.group(2)} proved\n")
+          print("**Notable log lines:**\n")
           print("```")
-          print("\n".join(keep[-60:]) or "(no WP summary captured)")
+          print("\n".join(notable[-40:]) or "(none captured)")
           print("```\n")
-          if m and m.group(1) == m.group(2):
-              print(f"✅ All WP goals discharged ({m.group(1)}/{m.group(2)}).")
-          elif m:
-              print(f"⚠️ {m.group(1)}/{m.group(2)} WP goals discharged — M2 in progress.")
+          total = sum(counts.values())
+          ok = counts.get("valid", 0) + counts.get("trivial", 0) + counts.get("Qed", 0)
+          if total and ok == total:
+              print(f"✅ All {total} WP goals discharged.")
+          elif total:
+              print(f"⚠️ {ok}/{total} goals discharged; "
+                    f"{total - ok} pending (e.g. not tried / unknown / timeout) — M2 in progress.")
           else:
-              print("⚠️ No WP summary found (WP may have failed to run).")
+              print("⚠️ No WP goals parsed (WP may have aborted before proving).")
           PY
           cat wp-report.md >> "$GITHUB_STEP_SUMMARY"
 
