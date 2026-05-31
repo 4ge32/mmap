@@ -218,6 +218,18 @@ CSS = """
   .doclayout { display: grid; grid-template-columns: 220px 1fr; gap: 24px; }
   #doccontent { min-width: 0; overflow-x: auto; }
   @media (max-width: 720px) { .doclayout { grid-template-columns: 1fr; } }
+  /* interactive VMA visualizer */
+  .vmaviz-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .vmaviz-btn, .vmaviz-controls select { font: inherit; padding: 4px 10px; border: 1px solid #d0d7de;
+            border-radius: 6px; background: #f6f8fa; cursor: pointer; }
+  .vmaviz-btn:disabled { opacity: .45; cursor: default; }
+  .vmaviz-svg { width: 100%; height: auto; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; }
+  .vmaviz-legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; font-size: 12px; color: #57606a; }
+  .vmaviz-key i { display: inline-block; width: 12px; height: 12px; border: 1px solid #374151;
+            border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .vmaviz-foot { margin-top: 8px; }
+  .vmaviz-counter { font-size: 12px; color: #6e7781; font-weight: 600; margin-right: 8px; }
+  .vmaviz-note { display: inline; }
 """
 
 STATUS_PILL = {
@@ -250,8 +262,9 @@ def meta_block(suites):
     return '<div class="meta">' + ' &middot; '.join(parts) + '</div>'
 
 
-def page_shell(active, title, body, with_mermaid=False, with_marked=False):
-    nav_items = [("index.html", "Overview"), ("tests.html", "Tests"), ("docs.html", "Docs")]
+def page_shell(active, title, body, with_mermaid=False, src_scripts=()):
+    nav_items = [("index.html", "Overview"), ("tests.html", "Tests"),
+                 ("visualize.html", "Visualize"), ("docs.html", "Docs")]
     nav = "".join(
         f'<a href="{href}" class="{"active" if href == active else ""}">{label}</a>'
         for href, label in nav_items
@@ -264,6 +277,8 @@ def page_shell(active, title, body, with_mermaid=False, with_marked=False):
             "mermaid.initialize({ startOnLoad: true });\n"
             "</script>\n"
         )
+    for s in src_scripts:
+        scripts += f'<script src="{s}"></script>\n'
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -392,6 +407,20 @@ def render_tests(suites, rev):
     return page_shell("tests.html", "mmap simulator - Tests", "\n".join(out))
 
 
+def render_visualize():
+    """Interactive page: step through VMA address-space scenarios (vma_viz.js)."""
+    body = """
+  <h2>Interactive address-space visualizer</h2>
+  <p class="meta">Step through how the simulator's operations reshape the VMA
+  list. Pick a scenario, then use Prev / Next / Play. Scenarios mirror
+  <code>docs/ldso_sequence.md</code> and the operation semantics in
+  <code>docs/mmap_model_spec.md</code>.</p>
+  <div id="vmaviz"></div>
+"""
+    return page_shell("visualize.html", "mmap simulator - Visualize", body,
+                      src_scripts=("vma_viz.js",))
+
+
 def render_docs(doc_files):
     """Docs page renders Markdown client-side via marked + mermaid (CDN)."""
     nav = "".join(
@@ -417,6 +446,19 @@ def render_docs(doc_files):
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
         const md = await r.text();
         content.innerHTML = marked.parse(md);
+        // Turn ```mermaid fenced blocks (rendered by marked as
+        // <code class="language-mermaid">) into <pre class="mermaid"> and run.
+        const blocks = content.querySelectorAll('code.language-mermaid');
+        blocks.forEach((c, i) => {{
+          const pre = document.createElement('pre');
+          pre.className = 'mermaid';
+          pre.textContent = c.textContent;
+          c.parentElement.replaceWith(pre);
+        }});
+        if (blocks.length) {{
+          try {{ await mermaid.run({{ querySelector: '#doccontent pre.mermaid' }}); }}
+          catch (err) {{ /* leave the source visible if rendering fails */ }}
+        }}
       }} catch (e) {{
         content.innerHTML = '<p class="bad">Failed to load ' + path + ': ' + e.message +
           '<br>(serve the site over HTTP, e.g. <code>python3 -m http.server -d site</code>)</p>';
@@ -480,11 +522,19 @@ def main():
             shutil.copyfile(os.path.join(args.docs, fn), os.path.join(dest, fn))
 
     os.makedirs(args.out, exist_ok=True)
+
+    # Copy the interactive visualizer asset alongside the pages (served as a
+    # plain <script src>; zero-dependency, no CDN). Sits next to this script.
+    viz_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vma_viz.js")
+    if os.path.isfile(viz_src):
+        shutil.copyfile(viz_src, os.path.join(args.out, "vma_viz.js"))
+
     rev = reverse_map(trace_rows)
     pages = {
         "index.html": render_overview(suites, jobs, trace_rows,
                                        reqs["categories"], orphan_tests),
         "tests.html": render_tests(suites, rev),
+        "visualize.html": render_visualize(),
         "docs.html": render_docs(doc_files),
     }
     for name, content in pages.items():
