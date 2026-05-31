@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "claude/**" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: build & tests (mandatory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          gcc --version
+          clang --version
+          make --version
+
+      - name: Build core (gcc, strict warnings)
+        run: make all
+
+      - name: Unit tests (gcc)
+        run: make test
+
+      - name: Unit tests (ASan/UBSan)
+        run: make test-asan
+
+      - name: Build & test with clang
+        run: make clean && make test CC=clang
+
+  proofs:
+    name: Frama-C/WP proofs (informational)
+    runs-on: ubuntu-latest
+    # Non-blocking: the proof tier is additive. The M2 contracts are authored
+    # but not all goals are discharged yet, and prover availability varies, so
+    # this job reports status without gating the workflow. Flip to a required
+    # check (or set VERIFY_REQUIRE_PROOF=1) once WP goals are fully discharged.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Frama-C and provers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y frama-c z3 alt-ergo || true
+
+      - name: Detect provers (why3)
+        run: why3 config detect || true
+
+      - name: Report versions
+        run: |
+          frama-c --version || echo "frama-c not installed"
+          z3 --version || true
+          alt-ergo --version || true
+
+      - name: Run WP proofs
+        run: make proof

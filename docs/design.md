@@ -80,6 +80,13 @@ promotes a SKIP to a hard failure for CI gates that mandate proofs. The
 `SessionStart` hook (`scripts/bootstrap.sh`) reports available tiers and makes
 a non-fatal, idempotent attempt to install Frama-C.
 
+CI (`.github/workflows/ci.yml`) mirrors the two tiers: a **mandatory** `tests`
+job (gcc strict build, `make test`, `make test-asan`, plus a clang build/test)
+gates merges, and an **informational** `proofs` job installs Frama-C + provers
+and runs `make proof` with `continue-on-error` (the M2 goals are not all
+discharged yet and prover availability varies). Promote the proof job to a
+required check once WP goals are fully discharged.
+
 ## F. Conventions
 
 C11; strict flags (`-Wall -Wextra -Werror -Wconversion -Wsign-conversion
