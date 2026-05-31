@@ -49,6 +49,24 @@ The runtime mirror is `as_check_wf()`; the ACSL predicate is `as_wf` in
 All reject `length == 0` (`MM_EINVAL`), reject prot/flags outside their masks,
 and guard `addr + length` / page round-up against `uint64_t` overflow.
 
+All three reduce to the same shape — split at the range boundaries, edit the
+covered VMAs, then canonicalize:
+
+```mermaid
+flowchart LR
+  A["validate args<br/>(len, prot, flags, overflow)"] --> B["split at start &amp; end<br/>(as_split_at)"]
+  B --> C{operation}
+  C -->|mmap MAP_FIXED| D["remove covered<br/>+ insert new VMA"]
+  C -->|mprotect| E["set prot on<br/>covered VMAs"]
+  C -->|munmap| F["remove covered<br/>VMAs"]
+  D --> G["as_canonicalize<br/>(merge neighbours)"]
+  E --> G
+  F --> G
+  G --> H["as_wf holds"]
+```
+
+> The interactive [Visualize](../visualize.html) tab animates these step by step.
+
 ### `mm_mmap`
 - Round `length` up to a page multiple. File-backed requires page-aligned
   `offset`.
