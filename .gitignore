@@ -1,0 +1,10 @@
+# build artifacts
+/build/
+*.o
+
+# bootstrap marker (session-local)
+/.bootstrap-done
+
+# Frama-C session/state
+/.frama-c/
+*.sav
