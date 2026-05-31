@@ -6,9 +6,15 @@
  * scenario (mmap / mprotect / munmap operations) with prev/next/play controls,
  * so the design docs can be explored visually.
  *
- * Scenarios are plain data (see SCENARIOS below): each step has a `note` and a
- * list of VMAs {start, end, prot, backing, label}. Addresses are in pages.
- * The design-visualizer agent keeps these in sync with docs/ + tests/.
+ * This is a *library*: each scenario has a stable `id` slug and is mounted as
+ * an independent inline widget via window.VmaViz.mount / mountAll. The Docs
+ * pages embed it next to the prose (gen_dashboard.py turns a ```vma-viz <id>```
+ * fence into a <div data-scenario="<id>"> mount point, then calls mountAll).
+ *
+ * Scenarios are plain data (see SCENARIOS below): each has an `id`, a `span`,
+ * and steps with a `note` plus VMAs {start, end, prot, backing, label}.
+ * Addresses are in pages. The design-visualizer agent keeps these in sync with
+ * docs/ + tests/.
  */
 (function () {
   "use strict";
@@ -33,6 +39,7 @@
   // ld.so synthetic example mirrors docs/ldso_sequence.md (7-page image).
   var SCENARIOS = {
     "ld.so shared-object mapping": {
+      id: "ldso-mapping",
       span: [0, 7],
       steps: [
         { note: "1. Whole-object PROT_NONE reservation of the 7-page image span.",
@@ -63,6 +70,7 @@
       ]
     },
     "MAP_FIXED overlay (split + fill)": {
+      id: "map-fixed-overlay",
       span: [0, 8],
       steps: [
         { note: "Start: one 8-page PROT_NONE reservation.",
@@ -75,6 +83,7 @@
       ]
     },
     "mprotect sub-range (split + merge)": {
+      id: "mprotect-split-merge",
       span: [0, 4],
       steps: [
         { note: "Start: one 4-page rw- anonymous mapping.",
@@ -89,6 +98,7 @@
       ]
     },
     "munmap punches a hole": {
+      id: "munmap-hole",
       span: [0, 6],
       steps: [
         { note: "Start: one 6-page r-- mapping.",
@@ -167,19 +177,49 @@
     container.appendChild(box);
   }
 
-  function mount(container) {
+  // Resolve a scenario by its stable `id` slug.
+  function findScenario(id) {
     var names = Object.keys(SCENARIOS);
-    var state = { scenario: names[0], step: 0, timer: null };
+    for (var i = 0; i < names.length; i++) {
+      if (SCENARIOS[names[i]].id === id) return SCENARIOS[names[i]];
+    }
+    return null;
+  }
 
-    var sel = document.createElement("select");
-    names.forEach(function (n) {
-      var o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o);
-    });
+  function button(label) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = label; b.className = "vmaviz-btn";
+    return b;
+  }
+
+  // Mount ONE fixed scenario's stepper into `container`. Idempotent: any prior
+  // widget (DOM + running Play timer) in the container is torn down first, so
+  // repeated mounts (the Docs page re-mounts on every client-side navigation)
+  // never duplicate controls or leak intervals.
+  function mount(container, scenarioId) {
+    if (!container) return;
+
+    // Tear down any prior widget in this container.
+    if (container._vmaViz && container._vmaViz.timer) {
+      clearInterval(container._vmaViz.timer);
+    }
+    while (container.firstChild) container.removeChild(container.firstChild);
+    container._vmaViz = { timer: null };
+
+    var scen = findScenario(scenarioId);
+    if (!scen) {
+      var err = document.createElement("p");
+      err.className = "vmaviz-note";
+      err.textContent = "Unknown scenario: " + scenarioId;
+      container.appendChild(err);
+      return;
+    }
+
+    var state = { step: 0 };
 
     var controls = document.createElement("div");
     controls.className = "vmaviz-controls";
     var prev = button("◀ Prev"), play = button("▶ Play"), next = button("Next ▶");
-    controls.appendChild(sel);
     controls.appendChild(prev);
     controls.appendChild(play);
     controls.appendChild(next);
@@ -202,14 +242,7 @@
     foot.appendChild(note);
     container.appendChild(foot);
 
-    function button(label) {
-      var b = document.createElement("button");
-      b.type = "button"; b.textContent = label; b.className = "vmaviz-btn";
-      return b;
-    }
-
     function draw() {
-      var scen = SCENARIOS[state.scenario];
       var step = scen.steps[state.step];
       renderTrack(svg, scen, step.vmas);
       note.textContent = step.note;
@@ -217,17 +250,21 @@
       prev.disabled = state.step === 0;
       next.disabled = state.step === scen.steps.length - 1;
     }
-    function stop() { if (state.timer) { clearInterval(state.timer); state.timer = null; play.textContent = "▶ Play"; } }
+    function stop() {
+      if (container._vmaViz.timer) {
+        clearInterval(container._vmaViz.timer);
+        container._vmaViz.timer = null;
+        play.textContent = "▶ Play";
+      }
+    }
 
-    sel.addEventListener("change", function () { stop(); state.scenario = sel.value; state.step = 0; draw(); });
     prev.addEventListener("click", function () { stop(); if (state.step > 0) { state.step--; draw(); } });
-    next.addEventListener("click", function () { stop(); var n = SCENARIOS[state.scenario].steps.length; if (state.step < n - 1) { state.step++; draw(); } });
+    next.addEventListener("click", function () { stop(); if (state.step < scen.steps.length - 1) { state.step++; draw(); } });
     play.addEventListener("click", function () {
-      if (state.timer) { stop(); return; }
+      if (container._vmaViz.timer) { stop(); return; }
       play.textContent = "⏸ Pause";
-      state.timer = setInterval(function () {
-        var n = SCENARIOS[state.scenario].steps.length;
-        if (state.step < n - 1) { state.step++; draw(); }
+      container._vmaViz.timer = setInterval(function () {
+        if (state.step < scen.steps.length - 1) { state.step++; draw(); }
         else stop();
       }, 1400);
     });
@@ -235,12 +272,18 @@
     draw();
   }
 
-  // Expose a global mount so the page can call it after inserting a container.
-  window.VmaViz = { mount: mount, scenarios: SCENARIOS };
+  // Find every [data-scenario] container under `root` and mount it. Idempotent.
+  function mountAll(root) {
+    var scope = root || document;
+    var nodes = scope.querySelectorAll("[data-scenario]");
+    for (var i = 0; i < nodes.length; i++) {
+      mount(nodes[i], nodes[i].getAttribute("data-scenario"));
+    }
+  }
 
-  // Auto-mount if a container already exists.
-  document.addEventListener("DOMContentLoaded", function () {
-    var c = document.getElementById("vmaviz");
-    if (c) mount(c);
-  });
+  // Expose the library so the Docs page can mount widgets after rendering.
+  window.VmaViz = { mount: mount, mountAll: mountAll, scenarios: SCENARIOS };
+
+  // Mount any server-rendered containers present at load.
+  document.addEventListener("DOMContentLoaded", function () { mountAll(document); });
 })();

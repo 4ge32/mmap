@@ -56,12 +56,13 @@ Full design: [`docs/design.md`](docs/design.md) · model semantics:
 
 ## Dashboard (GitHub Pages)
 
-CI publishes a static site with five pages: an **Overview** (pass/fail badge,
+CI publishes a static site with four pages: an **Overview** (pass/fail badge,
 visual requirement-coverage bar, requirement→test traceability matrix, CI
 job-dependency graph), **Tests** (per-suite bars + per-test results with a
-failing-only filter), an interactive **Visualize** tab (steps through how the
-operations reshape the VMA list), **Docs** (the design specs with an auto
-table-of-contents), and **Team** (the AI agent-team design). Build it locally:
+failing-only filter), **Docs** (the design specs with an auto
+table-of-contents, with an interactive VMA stepper embedded inline next to the
+ld.so sequence and the operation semantics), and **Team** (the AI agent-team
+design). Build it locally:
 
 ```sh
 python3 tools/gen_dashboard.py --reports reports --requirements docs/requirements.json --docs docs --out site

@@ -2,16 +2,17 @@
 """
 gen_dashboard.py - Build a static GitHub Pages site for the mmap simulator.
 
-The site has five pages sharing a common nav:
+The site has four pages sharing a common nav:
   index.html      Overview  - overall badge, a visual requirement-coverage bar,
                   the requirement->test traceability matrix, and the CI
                   job-dependency graph.
   tests.html      Tests     - per-suite pass/fail bars and per-test results
                   (with a "failing only" filter), each test annotated with the
                   requirement(s) it covers.
-  visualize.html  Visualize - interactive SVG address-space viewer (vma_viz.js).
   docs.html       Docs      - the design documents (docs/*.md) rendered
-                  client-side, with an auto table-of-contents.
+                  client-side, with an auto table-of-contents and the
+                  interactive VMA stepper (vma_viz.js) embedded inline where a
+                  ```vma-viz <scenario>``` fence appears.
   team.html       Team      - the AI agent-team design (docs/agent_team.md).
 
 Inputs:
@@ -298,8 +299,7 @@ def meta_block(suites):
 
 def page_shell(active, title, body, with_mermaid=False, src_scripts=()):
     nav_items = [("index.html", "Overview"), ("tests.html", "Tests"),
-                 ("visualize.html", "Visualize"), ("docs.html", "Docs"),
-                 ("team.html", "Team")]
+                 ("docs.html", "Docs"), ("team.html", "Team")]
     nav = "".join(
         f'<a href="{href}" class="{"active" if href == active else ""}">{label}</a>'
         for href, label in nav_items
@@ -489,20 +489,6 @@ def render_tests(suites, rev):
     return page_shell("tests.html", "mmap simulator - Tests", "\n".join(out))
 
 
-def render_visualize():
-    """Interactive page: step through VMA address-space scenarios (vma_viz.js)."""
-    body = """
-  <h2>Interactive address-space visualizer</h2>
-  <p class="meta">Step through how the simulator's operations reshape the VMA
-  list. Pick a scenario, then use Prev / Next / Play. Scenarios mirror
-  <code>docs/ldso_sequence.md</code> and the operation semantics in
-  <code>docs/mmap_model_spec.md</code>.</p>
-  <div id="vmaviz"></div>
-"""
-    return page_shell("visualize.html", "mmap simulator - Visualize", body,
-                      src_scripts=("vma_viz.js",))
-
-
 # Shared client-side Markdown renderer (marked + mermaid via CDN) with an
 # auto-generated in-page TOC and anchored headings. Used by Docs and Team.
 MD_RENDER_JS = """
@@ -531,6 +517,19 @@ MD_RENDER_JS = """
         if (blocks.length) {
           try { await mermaid.run({ querySelector: '#doccontent pre.mermaid' }); }
           catch (err) { /* leave source visible on failure */ }
+        }
+        // ```vma-viz <id> fences -> mount containers, then mount the inline
+        // interactive steppers (vma_viz.js exposes window.VmaViz). Runs on
+        // every load(); VmaViz.mount is idempotent so doc-switching is clean.
+        content.querySelectorAll('code.language-vma-viz').forEach(c => {
+          const div = document.createElement('div');
+          div.className = 'vmaviz-widget';
+          div.dataset.scenario = c.textContent.trim();
+          (c.closest('pre') || c.parentElement).replaceWith(div);
+        });
+        if (window.VmaViz) {
+          try { window.VmaViz.mountAll(content); }
+          catch (err) { /* leave placeholder if a scenario id is unknown */ }
         }
         // Anchor headings + build a TOC.
         if (tocEl) tocEl.innerHTML = '';
@@ -586,7 +585,8 @@ def render_docs(doc_files):
   </div>
   {MD_RENDER_JS}
 """
-    return page_shell("docs.html", "mmap simulator - Docs", body)
+    return page_shell("docs.html", "mmap simulator - Docs", body,
+                      src_scripts=("vma_viz.js",))
 
 
 def render_team(team_doc):
@@ -609,7 +609,8 @@ def render_team(team_doc):
   </div>
   {MD_RENDER_JS}
 """
-    return page_shell("team.html", "mmap simulator - Team", body)
+    return page_shell("team.html", "mmap simulator - Team", body,
+                      src_scripts=("vma_viz.js",))
 
 
 def mermaid_graph(jobs):
@@ -668,7 +669,6 @@ def main():
         "index.html": render_overview(suites, jobs, trace_rows,
                                        reqs["categories"], orphan_tests),
         "tests.html": render_tests(suites, rev),
-        "visualize.html": render_visualize(),
         "docs.html": render_docs(doc_files),
         "team.html": render_team(team_doc),
     }

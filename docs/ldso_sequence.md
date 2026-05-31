@@ -21,7 +21,10 @@ sequenceDiagram
   Note over AS: canonical: 5 VMAs, as_wf holds
 ```
 
-> The interactive [Visualize](visualize.html) tab animates this sequence.
+> Step through this sequence interactively below:
+
+```vma-viz ldso-mapping
+```
 
 ## The real loader sequence
 

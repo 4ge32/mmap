@@ -30,9 +30,9 @@ make test-mmap-ops
 # emit a JUnit report from a suite (CI consumes these for per-test Checks rows):
 JUNIT_XML=reports/test-mmap-ops.xml make test-mmap-ops
 
-# build the GitHub Pages site locally (Overview + traceability, Tests,
-# Visualize [interactive VMA viewer], Docs [rendered design specs]);
-# serve over HTTP so the Docs page can fetch docs/*.md:
+# build the GitHub Pages site locally (Overview + traceability, Tests, Docs
+# [rendered design specs with the interactive VMA stepper embedded inline],
+# Team); serve over HTTP so the Docs page can fetch docs/*.md:
 python3 tools/gen_dashboard.py --reports reports --requirements docs/requirements.json --docs docs --out site
 python3 -m http.server -d site
 ```
