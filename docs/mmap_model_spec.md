@@ -65,7 +65,7 @@ flowchart LR
   G --> H["as_wf holds"]
 ```
 
-> The interactive [Visualize](visualize.html) tab animates these step by step.
+> Step through each operation interactively in the inline widgets below.
 
 ### `mm_mmap`
 - Round `length` up to a page multiple. File-backed requires page-aligned
@@ -80,16 +80,25 @@ flowchart LR
 - Insert the new VMA, then `as_canonicalize`. Returns the chosen base in
   `*out_addr`.
 
+```vma-viz map-fixed-overlay
+```
+
 ### `mm_mprotect`
 - The entire `[addr, addr+len)` range must be mapped; a gap yields
   `MM_ENOMEM` (matching the kernel).
 - Split at both endpoints, set `prot` on every covered VMA, then
   `as_canonicalize` (newly-equal neighbors may now merge).
 
+```vma-viz mprotect-split-merge
+```
+
 ### `mm_munmap`
 - Split at both endpoints, remove every covered VMA. Unmapped sub-ranges are
   tolerated. Removal cannot create new mergeable neighbors (it creates a gap),
   but `as_canonicalize` is called for uniformity.
+
+```vma-viz munmap-hole
+```
 
 ## Out of scope (phase 1 non-goals)
 
