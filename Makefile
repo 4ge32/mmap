@@ -80,7 +80,7 @@ FRAMAC_SRC   := $(CORE_SRC) proofs/wp_entry.c
 proof:
 	@if ! command -v frama-c >/dev/null 2>&1; then \
 	    echo "[SKIP] frama-c not on PATH - proof tier skipped"; \
-	elif frama-c -wp-version >/dev/null 2>&1; then \
+	elif frama-c -wp-help >/dev/null 2>&1; then \
 	    echo "== running Frama-C/WP proofs =="; \
 	    frama-c $(FRAMAC_FLAGS) -rte -wp -wp-rte \
 	        -wp-prover z3,alt-ergo -wp-timeout 20 $(FRAMAC_SRC); \
