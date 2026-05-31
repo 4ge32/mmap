@@ -505,7 +505,14 @@ MD_RENDER_JS = """
       try {
         const r = await fetch(path);
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        content.innerHTML = marked.parse(await r.text());
+        let md = await r.text();
+        // ```vma-viz <id>``` fences carry the scenario id in the fence INFO
+        // string (which marked drops from the rendered HTML, leaving an empty
+        // code body). Rewrite them to mount-container divs in the raw markdown,
+        // before marked.parse, so the id survives.
+        md = md.replace(/^```vma-viz[ \\t]+([\\w-]+)[ \\t]*\\r?\\n```[ \\t]*$/gm,
+          (_m, id) => '<div class="vmaviz-widget" data-scenario="' + id + '"></div>');
+        content.innerHTML = marked.parse(md);
         // ```mermaid fences -> <pre class="mermaid"> then render.
         const blocks = content.querySelectorAll('code.language-mermaid');
         blocks.forEach(c => {
@@ -518,15 +525,10 @@ MD_RENDER_JS = """
           try { await mermaid.run({ querySelector: '#doccontent pre.mermaid' }); }
           catch (err) { /* leave source visible on failure */ }
         }
-        // ```vma-viz <id> fences -> mount containers, then mount the inline
-        // interactive steppers (vma_viz.js exposes window.VmaViz). Runs on
-        // every load(); VmaViz.mount is idempotent so doc-switching is clean.
-        content.querySelectorAll('code.language-vma-viz').forEach(c => {
-          const div = document.createElement('div');
-          div.className = 'vmaviz-widget';
-          div.dataset.scenario = c.textContent.trim();
-          (c.closest('pre') || c.parentElement).replaceWith(div);
-        });
+        // Mount the inline interactive steppers into the .vmaviz-widget
+        // containers produced from the vma-viz fences above (vma_viz.js exposes
+        // window.VmaViz). Runs on every load(); VmaViz.mount is idempotent so
+        // doc-switching is clean.
         if (window.VmaViz) {
           try { window.VmaViz.mountAll(content); }
           catch (err) { /* leave placeholder if a scenario id is unknown */ }
