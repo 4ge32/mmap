@@ -56,7 +56,9 @@ and guard `addr + length` / page round-up against `uint64_t` overflow.
   bounds; the range `[addr, addr+len)` is *overlaid* — split at the
   boundaries, remove fully-covered VMAs, then insert the new one (the
   "punch a hole and fill it" step ld.so relies on). Without `MAP_FIXED`, a
-  placement is chosen via `as_find_free` (top-down first-fit).
+  page-aligned, in-bounds `addr` hint is honored when the requested range is
+  free; otherwise (no hint, unaligned, out of bounds, or occupied) a placement
+  is chosen via `as_find_free` (top-down first-fit).
 - Insert the new VMA, then `as_canonicalize`. Returns the chosen base in
   `*out_addr`.
 

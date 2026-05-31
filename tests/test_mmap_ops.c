@@ -109,6 +109,70 @@ static void test_munmap_hole_and_remerge(void)
     ASSERT_WF(as);
 }
 
+static void test_nonfixed_hint(void)
+{
+    struct addr_space as; as_init(&as);
+    uint64_t hint = 0x400000000ULL, out;
+    /* free, aligned, in-bounds hint must be honored verbatim */
+    ASSERT_STATUS(mm_mmap(&as, hint, 2 * PG, PROT_READ,
+                          MAP_PRIVATE | MAP_ANONYMOUS, VMA_ANON, -1, 0, &out), MM_OK);
+    ASSERT_EQ_U64(out, hint);
+    ASSERT_WF(as);
+
+    /* a second mapping hinting into the now-occupied range falls back to
+     * first-fit (does not land on the taken hint) */
+    uint64_t out2;
+    ASSERT_STATUS(mm_mmap(&as, hint, 2 * PG, PROT_READ,
+                          MAP_PRIVATE | MAP_ANONYMOUS, VMA_ANON, -1, 0, &out2), MM_OK);
+    ASSERT_TRUE(out2 != hint);
+    ASSERT_WF(as);
+
+    /* unaligned hint is ignored (still succeeds via fallback) */
+    struct addr_space as2; as_init(&as2);
+    uint64_t out3;
+    ASSERT_STATUS(mm_mmap(&as2, hint + 1, PG, PROT_READ,
+                          MAP_PRIVATE | MAP_ANONYMOUS, VMA_ANON, -1, 0, &out3), MM_OK);
+    ASSERT_TRUE(is_page_aligned(out3));
+    ASSERT_WF(as2);
+}
+
+static void test_split_atomic_on_full(void)
+{
+    /* When the array is full, an interior operation that would need to split
+     * a VMA must fail (MM_ENOMEM) WITHOUT mutating, so the address space stays
+     * well-formed and canonical (regression for the split_boundaries preflight). */
+    struct addr_space as; as_init(&as);
+    uint64_t out;
+
+    /* A 4-page splittable VMA up front. */
+    uint64_t big = 0x10000000ULL;
+    ASSERT_STATUS(mm_mmap(&as, big, 4 * PG, PROT_READ,
+                          MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+                          VMA_ANON, -1, 0, &out), MM_OK);
+
+    /* Fill capacity with isolated single pages (2-page stride => 1-page gaps,
+     * so none ever merge) until count == VMA_CAP. */
+    uint64_t p = big + 100 * PG;
+    while (as.count < VMA_CAP) {
+        ASSERT_STATUS(mm_mmap(&as, p, PG, PROT_READ,
+                              MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+                              VMA_ANON, -1, 0, &out), MM_OK);
+        p += 2 * PG;
+    }
+    ASSERT_EQ_U64(as.count, VMA_CAP);
+    ASSERT_WF(as);
+    size_t saved = as.count;
+
+    /* mprotect an interior page of the big VMA: needs two splits, but the
+     * array is full -> must report ENOMEM and change nothing. */
+    ASSERT_STATUS(mm_mprotect(&as, big + PG, PG, PROT_WRITE), MM_ENOMEM);
+    ASSERT_EQ_U64(as.count, saved);
+    ASSERT_WF(as);
+    /* the big VMA is untouched (still a single 4-page PROT_READ region) */
+    ASSERT_EQ_INT(prot_at(&as, big), PROT_READ);
+    ASSERT_EQ_INT(prot_at(&as, big + PG), PROT_READ);
+}
+
 int main(void)
 {
     RUN_TEST(test_invalid_args);
@@ -116,5 +180,7 @@ int main(void)
     RUN_TEST(test_fixed_overlay_split);
     RUN_TEST(test_mprotect_split_and_gap);
     RUN_TEST(test_munmap_hole_and_remerge);
+    RUN_TEST(test_nonfixed_hint);
+    RUN_TEST(test_split_atomic_on_full);
     return TEST_SUMMARY();
 }

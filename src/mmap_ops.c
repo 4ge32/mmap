@@ -22,14 +22,28 @@ static mm_status split_boundaries(struct addr_space *as,
     size_t lo, hi;
     as_find_range(as, start, end, &lo, &hi);
 
+    /* Preflight: count how many boundary splits are required (0, 1, or 2)
+     * from the *original* geometry, and ensure capacity up front. This keeps
+     * the operation atomic: we either perform all splits or mutate nothing,
+     * so a public op never returns an error with a non-canonical addr_space. */
+    size_t need = 0;
+    bool split_start = (lo < hi && as->vmas[lo].start < start &&
+                        start < as->vmas[lo].end);
+    if (split_start)
+        need++;
+    if (hi > lo) {
+        size_t last = hi - 1;
+        if (as->vmas[last].start < end && end < as->vmas[last].end)
+            need++;
+    }
+    if (as->count + need > VMA_CAP)
+        return MM_ENOMEM; /* not enough room - do not mutate */
+
     /* split the VMA straddling `start` (it is the first overlapper, if any) */
-    if (lo < hi && as->vmas[lo].start < start && start < as->vmas[lo].end) {
+    if (split_start) {
         mm_status st = as_split_at(as, lo, start);
         if (st != MM_OK)
-            return st;
-        /* the range now begins at the new right half */
-        lo++;
-        hi++;
+            return st; /* unreachable after preflight; defensive */
     }
 
     /* re-find the right boundary; split the VMA straddling `end` */
@@ -39,7 +53,7 @@ static mm_status split_boundaries(struct addr_space *as,
         if (as->vmas[last].start < end && end < as->vmas[last].end) {
             mm_status st = as_split_at(as, last, end);
             if (st != MM_OK)
-                return st;
+                return st; /* unreachable after preflight; defensive */
         }
     }
     return MM_OK;
@@ -83,10 +97,23 @@ mm_status mm_mmap(struct addr_space *as,
             return MM_ENOMEM;
         base = addr;
     } else {
-        /* hint honored only if free; otherwise top-down first-fit */
-        mm_status st = as_find_free(as, len, &base);
-        if (st != MM_OK)
-            return st;
+        /* Honor a usable hint: page-aligned, in bounds, and the requested
+         * range is currently free. Otherwise fall back to top-down first-fit. */
+        bool placed = false;
+        if (addr != 0 && is_page_aligned(addr) && !add_overflows(addr, len) &&
+            addr >= as->as_min && addr + len <= as->as_max) {
+            size_t lo, hi;
+            as_find_range(as, addr, addr + len, &lo, &hi);
+            if (lo == hi) { /* nothing overlaps - the hint is free */
+                base = addr;
+                placed = true;
+            }
+        }
+        if (!placed) {
+            mm_status st = as_find_free(as, len, &base);
+            if (st != MM_OK)
+                return st;
+        }
     }
 
     uint64_t end = base + len;
