@@ -21,7 +21,7 @@ sequenceDiagram
   Note over AS: canonical: 5 VMAs, as_wf holds
 ```
 
-> The interactive [Visualize](../visualize.html) tab animates this sequence.
+> The interactive [Visualize](visualize.html) tab animates this sequence.
 
 ## The real loader sequence
 

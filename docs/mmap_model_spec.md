@@ -65,7 +65,7 @@ flowchart LR
   G --> H["as_wf holds"]
 ```
 
-> The interactive [Visualize](../visualize.html) tab animates these step by step.
+> The interactive [Visualize](visualize.html) tab animates these step by step.
 
 ### `mm_mmap`
 - Round `length` up to a page multiple. File-backed requires page-aligned
