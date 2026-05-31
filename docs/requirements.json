@@ -1,0 +1,141 @@
+{
+  "_comment": "Requirements registry: the single source of truth for requirement -> test traceability. Each requirement lists the test descriptions that cover it; those strings MUST exactly match the JUnit <testcase name> values (the 2nd argument to RUN_TEST in tests/*.c). tools/gen_dashboard.py joins these against the JUnit reports to compute coverage and warns on any mismatch (unknown test name, or test not mapped to any requirement). Update this file whenever requirements or tests change.",
+  "categories": {
+    "WF": "Well-formedness invariant (as_wf) — docs/mmap_model_spec.md",
+    "OP": "mmap/mprotect/munmap operation semantics — docs/mmap_model_spec.md",
+    "LDSO": "ld.so shared-object mapping sequence — docs/ldso_sequence.md"
+  },
+  "requirements": [
+    {
+      "id": "REQ-WF-1",
+      "category": "WF",
+      "title": "Capacity & bounds: count <= VMA_CAP and as_min <= as_max",
+      "source": "docs/mmap_model_spec.md#well-formedness-invariant-as_wf",
+      "tests": [
+        "Boundary split is atomic at capacity (ENOMEM, no mutation)"
+      ]
+    },
+    {
+      "id": "REQ-WF-2",
+      "category": "WF",
+      "title": "Per-VMA validity: in-bounds, non-empty, page-aligned, prot within PROT_ALL",
+      "source": "docs/mmap_model_spec.md#well-formedness-invariant-as_wf",
+      "tests": [
+        "Arithmetic guards: overflow detection & page rounding",
+        "Splitting a file-backed VMA advances file_offset correctly",
+        "mmap rejects invalid length/prot/alignment"
+      ]
+    },
+    {
+      "id": "REQ-WF-3",
+      "category": "WF",
+      "title": "Sorted & disjoint: vmas[k].end <= vmas[k+1].start for all k",
+      "source": "docs/mmap_model_spec.md#well-formedness-invariant-as_wf",
+      "tests": [
+        "Primitive split/insert/remove keep ordering & count"
+      ]
+    },
+    {
+      "id": "REQ-WF-4",
+      "category": "WF",
+      "title": "Canonical form: no adjacent mergeable pair left unmerged",
+      "source": "docs/mmap_model_spec.md#well-formedness-invariant-as_wf",
+      "tests": [
+        "VMA mergeability: prot/flags/backing & file-offset contiguity",
+        "Canonicalize merges adjacent compatible VMAs only",
+        "Anonymous mmap placement & adjacent merge"
+      ]
+    },
+    {
+      "id": "REQ-MMAP-FIXED",
+      "category": "OP",
+      "title": "MAP_FIXED overlays the range: split boundaries, remove covered, insert new",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "MAP_FIXED overlay splits the underlying reservation"
+      ]
+    },
+    {
+      "id": "REQ-MMAP-HINT",
+      "category": "OP",
+      "title": "Non-FIXED placement: honor a free in-bounds hint, else top-down first-fit",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "Non-FIXED mmap honors a free hint, else first-fit"
+      ]
+    },
+    {
+      "id": "REQ-MMAP-VALIDATE",
+      "category": "OP",
+      "title": "Reject length==0, prot/flags outside masks, and address/round-up overflow",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "mmap rejects invalid length/prot/alignment",
+        "Arithmetic guards: overflow detection & page rounding"
+      ]
+    },
+    {
+      "id": "REQ-MPROTECT-GAP",
+      "category": "OP",
+      "title": "mprotect splits sub-ranges, sets prot, and rejects an unmapped gap (ENOMEM)",
+      "source": "docs/mmap_model_spec.md#mm_mprotect",
+      "tests": [
+        "mprotect splits sub-ranges & rejects unmapped gaps"
+      ]
+    },
+    {
+      "id": "REQ-MUNMAP-HOLE",
+      "category": "OP",
+      "title": "munmap removes covered VMAs, tolerates already-unmapped sub-ranges",
+      "source": "docs/mmap_model_spec.md#mm_munmap",
+      "tests": [
+        "munmap punches holes & tolerates empty ranges"
+      ]
+    },
+    {
+      "id": "REQ-OP-ATOMIC",
+      "category": "OP",
+      "title": "Operations are all-or-nothing: at capacity, fail with ENOMEM and no mutation",
+      "source": "docs/mmap_model_spec.md#primitives",
+      "tests": [
+        "Boundary split is atomic at capacity (ENOMEM, no mutation)"
+      ]
+    },
+    {
+      "id": "REQ-LDSO-1",
+      "category": "LDSO",
+      "title": "Whole-object PROT_NONE reservation of the total image span",
+      "source": "docs/ldso_sequence.md#the-real-loader-sequence",
+      "tests": [
+        "Full ld.so mapping sequence preserves as_wf at each step"
+      ]
+    },
+    {
+      "id": "REQ-LDSO-2",
+      "category": "LDSO",
+      "title": "Per-PT_LOAD MAP_FIXED file-backed segment mapping with real prot (text R|X, data R|W)",
+      "source": "docs/ldso_sequence.md#the-real-loader-sequence",
+      "tests": [
+        "Full ld.so mapping sequence preserves as_wf at each step"
+      ]
+    },
+    {
+      "id": "REQ-LDSO-3",
+      "category": "LDSO",
+      "title": "bss zero-fill: anonymous R|W pages beyond file content via MAP_FIXED",
+      "source": "docs/ldso_sequence.md#the-real-loader-sequence",
+      "tests": [
+        "Full ld.so mapping sequence preserves as_wf at each step"
+      ]
+    },
+    {
+      "id": "REQ-LDSO-4",
+      "category": "LDSO",
+      "title": "GNU_RELRO: mprotect the relro sub-range of the data segment to read-only",
+      "source": "docs/ldso_sequence.md#the-real-loader-sequence",
+      "tests": [
+        "Full ld.so mapping sequence preserves as_wf at each step"
+      ]
+    }
+  ]
+}
