@@ -131,14 +131,18 @@ status checks (which are per-job):
   provers and runs `make proof`. The M2 goals are not all discharged yet and
   prover availability varies; promote to a required check once they are.
 - **`pages`** — on `main` (or manual dispatch), builds a static GitHub Pages
-  site via `tools/gen_dashboard.py` and deploys it. The site has four pages
-  sharing a nav: **Overview** (overall badge, a requirement→test
-  *traceability matrix*, and the CI job-dependency graph as Mermaid),
-  **Tests** (per-suite/per-test results, each annotated with the requirements
-  it covers), **Visualize** (an interactive SVG address-space viewer,
-  `tools/vma_viz.js`, that steps through the mmap/mprotect/munmap and ld.so
-  scenarios), and **Docs** (the `docs/*.md` design documents rendered
-  client-side with `marked`, including their embedded Mermaid diagrams).
+  site via `tools/gen_dashboard.py` and deploys it. The site has five pages
+  sharing a nav: **Overview** (overall badge, a visual requirement-coverage
+  bar, the requirement→test *traceability matrix*, and the CI job-dependency
+  graph as Mermaid), **Tests** (per-suite pass/fail bars and per-test results
+  with a failing-only filter, each annotated with the requirements it covers),
+  **Visualize** (an interactive SVG address-space viewer, `tools/vma_viz.js`,
+  that steps through the mmap/mprotect/munmap and ld.so scenarios), **Docs**
+  (the `docs/*.md` design documents rendered client-side with `marked`,
+  including their embedded Mermaid diagrams and an auto table-of-contents), and
+  **Team** (the AI agent-team design from `docs/agent_team.md`). A separate
+  `docs-consistency` job (`scripts/check_agent_team_doc.py`) fails CI if the
+  Team doc stops mentioning any agent or skill under `.claude/`.
   Traceability is driven by the registry
   `docs/requirements.json`, whose per-requirement `tests` strings must match
   the JUnit `<testcase name>` values; the generator warns on any unmatched

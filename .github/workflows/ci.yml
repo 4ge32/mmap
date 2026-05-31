@@ -59,6 +59,14 @@ jobs:
       - name: Build & run all suites with clang
         run: make clean && make test CC=clang
 
+  docs-consistency:
+    name: docs/agent_team.md in sync with .claude
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Team page doc references every agent and skill
+        run: python3 scripts/check_agent_team_doc.py
+
   # Consume the JUnit artifacts and publish a per-test breakdown (each test
   # function as a row) in the Checks UI.
   test-report:

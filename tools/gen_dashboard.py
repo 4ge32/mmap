@@ -2,12 +2,17 @@
 """
 gen_dashboard.py - Build a static GitHub Pages site for the mmap simulator.
 
-The site has three pages sharing a common nav:
-  index.html  Overview - overall badge, requirement->test traceability matrix,
-              and the CI job-dependency graph.
-  tests.html  Tests    - per-suite / per-test results, each test annotated with
-              the requirement(s) it covers.
-  docs.html   Docs      - the design documents (docs/*.md) rendered client-side.
+The site has five pages sharing a common nav:
+  index.html      Overview  - overall badge, a visual requirement-coverage bar,
+                  the requirement->test traceability matrix, and the CI
+                  job-dependency graph.
+  tests.html      Tests     - per-suite pass/fail bars and per-test results
+                  (with a "failing only" filter), each test annotated with the
+                  requirement(s) it covers.
+  visualize.html  Visualize - interactive SVG address-space viewer (vma_viz.js).
+  docs.html       Docs      - the design documents (docs/*.md) rendered
+                  client-side, with an auto table-of-contents.
+  team.html       Team      - the AI agent-team design (docs/agent_team.md).
 
 Inputs:
   --reports DIR        directory of JUnit XML files (from tests/test_harness.h)
@@ -230,6 +235,35 @@ CSS = """
   .vmaviz-foot { margin-top: 8px; }
   .vmaviz-counter { font-size: 12px; color: #6e7781; font-weight: 600; margin-right: 8px; }
   .vmaviz-note { display: inline; }
+  /* Overview coverage chart */
+  .cov-wrap { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin: 8px 0 20px; }
+  .cov-bar { display: flex; height: 26px; width: 100%; max-width: 520px; border-radius: 6px;
+             overflow: hidden; border: 1px solid #d0d7de; }
+  .cov-seg { height: 100%; }
+  .cov-seg.passing { background: #1a7f37; }
+  .cov-seg.failing { background: #cf222e; }
+  .cov-seg.partial { background: #d4a72c; }
+  .cov-seg.no-test { background: #afb8c1; }
+  .cov-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+  .cov-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .cov-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .cov-num { font-weight: 700; font-size: 22px; }
+  /* Tests pass/fail bar + filter */
+  .suite-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+  .passbar { width: 160px; height: 10px; border-radius: 5px; background: #ffd7d5; overflow: hidden;
+             border: 1px solid #d0d7de; }
+  .passbar > i { display: block; height: 100%; background: #1a7f37; }
+  .controls { display: flex; gap: 12px; align-items: center; margin: 12px 0; font-size: 14px; }
+  .controls label { cursor: pointer; user-select: none; }
+  body.failing-only tr.tc-pass { display: none; }
+  body.failing-only h3.suite-allpass { opacity: .5; }
+  /* In-page table of contents (Docs / Team) */
+  .toc { font-size: 13px; }
+  .toc a { display: block; padding: 1px 0; text-decoration: none; color: #0969da; }
+  .toc a.h3 { padding-left: 12px; color: #57606a; }
+  .anchored { scroll-margin-top: 12px; }
+  .anchored .anchor { opacity: 0; text-decoration: none; margin-left: 6px; color: #8b949e; }
+  .anchored:hover .anchor { opacity: 1; }
 """
 
 STATUS_PILL = {
@@ -264,7 +298,8 @@ def meta_block(suites):
 
 def page_shell(active, title, body, with_mermaid=False, src_scripts=()):
     nav_items = [("index.html", "Overview"), ("tests.html", "Tests"),
-                 ("visualize.html", "Visualize"), ("docs.html", "Docs")]
+                 ("visualize.html", "Visualize"), ("docs.html", "Docs"),
+                 ("team.html", "Team")]
     nav = "".join(
         f'<a href="{href}" class="{"active" if href == active else ""}">{label}</a>'
         for href, label in nav_items
@@ -317,6 +352,31 @@ def render_overview(suites, jobs, trace_rows, categories, orphan_tests):
         cat_counts[c][r["status"]] += 1
     if trace_rows:
         out.append('<h2>Requirement coverage</h2>')
+        # Visual coverage bar (inline CSS, no JS) summing the four statuses.
+        tot = {"passing": 0, "failing": 0, "partial": 0, "no-test": 0}
+        for r in trace_rows:
+            tot[r["status"]] += 1
+        n = len(trace_rows)
+        seg = []
+        for key in ("passing", "failing", "partial", "no-test"):
+            if tot[key]:
+                pct = 100.0 * tot[key] / n
+                seg.append(f'<div class="cov-seg {key}" style="width:{pct:.4f}%" '
+                           f'title="{key}: {tot[key]}"></div>')
+        legend = []
+        for key, lab in (("passing", "passing"), ("failing", "failing"),
+                         ("partial", "partial"), ("no-test", "no test")):
+            cls = key.replace("no-test", "no-test")
+            legend.append(f'<span><i class="cov-seg {cls}"></i>{lab} '
+                          f'<b>{tot[key]}</b></span>')
+        out.append(
+            '<div class="cov-wrap">'
+            f'<div><div class="cov-num">{tot["passing"]}/{n}</div>'
+            '<div class="meta" style="margin:0">requirements covered &amp; passing</div></div>'
+            f'<div style="flex:1;min-width:260px"><div class="cov-bar">{"".join(seg)}</div>'
+            f'<div class="cov-legend" style="margin-top:8px">{"".join(legend)}</div></div>'
+            '</div>'
+        )
         out.append('<table><thead><tr><th>Category</th><th>Passing</th>'
                    '<th>Failing</th><th>Partial</th><th>No&nbsp;test</th></tr></thead><tbody>')
         for cat, label in categories.items():
@@ -379,18 +439,31 @@ def render_tests(suites, rev):
     out = ['<h2>Test results</h2>', meta_block(suites)]
     if not suites:
         out.append("<p>No JUnit reports found.</p>")
+    else:
+        out.append(
+            '<div class="controls"><label><input type="checkbox" id="failonly"> '
+            'Show failing only</label></div>'
+        )
     for s in suites:
         ok = s["failures"] == 0
+        passed = s["tests"] - s["failures"]
+        pct = (100.0 * passed / s["tests"]) if s["tests"] else 0.0
+        h3_cls = ' class="suite-allpass"' if ok else ""
+        pill_cls = "ok" if ok else "bad"
         out.append(
-            f'<h3>{html.escape(s["name"])} '
-            f'<span class="pill {"ok" if ok else "bad"}">'
-            f'{s["tests"] - s["failures"]}/{s["tests"]} passed</span></h3>'
+            '<div class="suite-head">'
+            f'<h3{h3_cls} style="margin:0">{html.escape(s["name"])}</h3>'
+            f'<span class="pill {pill_cls}">{passed}/{s["tests"]} passed</span>'
+            f'<span class="passbar" title="{pct:.0f}% passing">'
+            f'<i style="width:{pct:.4f}%"></i></span>'
+            '</div>'
         )
         out.append('<table><thead><tr><th>Test</th><th>Covers</th>'
                    '<th>Checks</th><th>Result</th></tr></thead><tbody>')
         for c in s["cases"]:
             res = '<span class="ok">PASS</span>' if not c["failed"] \
                   else '<span class="bad">FAIL</span>'
+            row_cls = "tc-pass" if not c["failed"] else "tc-fail"
             detail = ""
             if c["failed"] and c["message"].strip():
                 detail = f'<div class="msg">{html.escape(c["message"].strip())}</div>'
@@ -399,11 +472,20 @@ def render_tests(suites, rev):
                 for rid in rev.get(c["name"], [])
             ) or "&mdash;"
             out.append(
-                f'<tr id="{slug(c["name"])}"><td>{html.escape(c["name"])}{detail}</td>'
+                f'<tr id="{slug(c["name"])}" class="{row_cls}">'
+                f'<td>{html.escape(c["name"])}{detail}</td>'
                 f'<td>{covers}</td>'
                 f'<td>{html.escape(c["assertions"])}</td><td>{res}</td></tr>'
             )
         out.append("</tbody></table>")
+    # Progressive-enhancement filter: toggles a body class; no JS = all visible.
+    out.append(
+        '<script>\n'
+        'var fo=document.getElementById("failonly");\n'
+        'if(fo){fo.addEventListener("change",function(){'
+        'document.body.classList.toggle("failing-only",fo.checked);});}\n'
+        '</script>'
+    )
     return page_shell("tests.html", "mmap simulator - Tests", "\n".join(out))
 
 
@@ -421,62 +503,113 @@ def render_visualize():
                       src_scripts=("vma_viz.js",))
 
 
+# Shared client-side Markdown renderer (marked + mermaid via CDN) with an
+# auto-generated in-page TOC and anchored headings. Used by Docs and Team.
+MD_RENDER_JS = """
+  <script type="module">
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@12/lib/marked.esm.js';
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false });
+    const content = document.getElementById('doccontent');
+    const tocEl = document.getElementById('toc');
+    function slugify(t) {
+      return t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+    async function load(path) {
+      try {
+        const r = await fetch(path);
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        content.innerHTML = marked.parse(await r.text());
+        // ```mermaid fences -> <pre class="mermaid"> then render.
+        const blocks = content.querySelectorAll('code.language-mermaid');
+        blocks.forEach(c => {
+          const pre = document.createElement('pre');
+          pre.className = 'mermaid';
+          pre.textContent = c.textContent;
+          c.parentElement.replaceWith(pre);
+        });
+        if (blocks.length) {
+          try { await mermaid.run({ querySelector: '#doccontent pre.mermaid' }); }
+          catch (err) { /* leave source visible on failure */ }
+        }
+        // Anchor headings + build a TOC.
+        if (tocEl) tocEl.innerHTML = '';
+        const used = {};
+        content.querySelectorAll('h2, h3').forEach(h => {
+          let id = slugify(h.textContent) || 'sec';
+          if (used[id] != null) { used[id]++; id = id + '-' + used[id]; } else used[id] = 0;
+          h.id = id;
+          h.classList.add('anchored');
+          const a = document.createElement('a');
+          a.href = '#' + id; a.className = 'anchor'; a.textContent = '#';
+          h.appendChild(a);
+          if (tocEl) {
+            const link = document.createElement('a');
+            link.href = '#' + id; link.textContent = h.textContent.replace(/#$/, '');
+            link.className = h.tagName === 'H3' ? 'h3' : 'h2';
+            tocEl.appendChild(link);
+          }
+        });
+      } catch (e) {
+        content.innerHTML = '<p class="bad">Failed to load ' + path + ': ' + e.message +
+          '<br>(serve the site over HTTP, e.g. <code>python3 -m http.server -d site</code>)</p>';
+      }
+    }
+    const navLinks = document.querySelectorAll('#docnav a');
+    navLinks.forEach(a => {
+      a.addEventListener('click', ev => {
+        ev.preventDefault();
+        navLinks.forEach(x => x.classList.remove('active'));
+        a.classList.add('active');
+        load(a.dataset.doc);
+      });
+    });
+    const firstLink = document.querySelector('#docnav a');
+    if (firstLink) { firstLink.classList.add('active'); load(firstLink.dataset.doc); }
+  </script>
+"""
+
+
 def render_docs(doc_files):
     """Docs page renders Markdown client-side via marked + mermaid (CDN)."""
     nav = "".join(
         f'<a href="#" data-doc="docs/{html.escape(fn)}">{html.escape(fn)}</a>'
         for fn in doc_files
     )
-    first = f"docs/{doc_files[0]}" if doc_files else ""
     body = f"""
   <h2>Design documents</h2>
   <p class="meta">Rendered from the repository's <code>docs/*.md</code> sources.</p>
   <div class="doclayout">
     <nav id="docnav">{nav}</nav>
     <article id="doccontent">Select a document.</article>
+    <nav id="toc" class="toc"></nav>
   </div>
-  <script type="module">
-    import {{ marked }} from 'https://cdn.jsdelivr.net/npm/marked@12/lib/marked.esm.js';
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({{ startOnLoad: false }});
-    const content = document.getElementById('doccontent');
-    async function load(path) {{
-      try {{
-        const r = await fetch(path);
-        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        const md = await r.text();
-        content.innerHTML = marked.parse(md);
-        // Turn ```mermaid fenced blocks (rendered by marked as
-        // <code class="language-mermaid">) into <pre class="mermaid"> and run.
-        const blocks = content.querySelectorAll('code.language-mermaid');
-        blocks.forEach((c, i) => {{
-          const pre = document.createElement('pre');
-          pre.className = 'mermaid';
-          pre.textContent = c.textContent;
-          c.parentElement.replaceWith(pre);
-        }});
-        if (blocks.length) {{
-          try {{ await mermaid.run({{ querySelector: '#doccontent pre.mermaid' }}); }}
-          catch (err) {{ /* leave the source visible if rendering fails */ }}
-        }}
-      }} catch (e) {{
-        content.innerHTML = '<p class="bad">Failed to load ' + path + ': ' + e.message +
-          '<br>(serve the site over HTTP, e.g. <code>python3 -m http.server -d site</code>)</p>';
-      }}
-    }}
-    document.querySelectorAll('#docnav a').forEach(a => {{
-      a.addEventListener('click', ev => {{
-        ev.preventDefault();
-        document.querySelectorAll('#docnav a').forEach(x => x.classList.remove('active'));
-        a.classList.add('active');
-        load(a.dataset.doc);
-      }});
-    }});
-    const firstLink = document.querySelector('#docnav a');
-    if (firstLink) {{ firstLink.classList.add('active'); load('{first}'); }}
-  </script>
+  {MD_RENDER_JS}
 """
     return page_shell("docs.html", "mmap simulator - Docs", body)
+
+
+def render_team(team_doc):
+    """Team page: render the agent-team design doc (docs/agent_team.md) with the
+    same Markdown+Mermaid+TOC pipeline as Docs, but pinned to a single file."""
+    if not team_doc:
+        body = '<h2>AI Agent Team</h2><p>docs/agent_team.md not found.</p>'
+        return page_shell("team.html", "mmap simulator - Team", body)
+    # Hidden single-entry docnav so the shared MD_RENDER_JS loads this file.
+    nav = (f'<a href="#" data-doc="docs/{html.escape(team_doc)}" '
+           f'style="display:none"></a>')
+    body = f"""
+  <h2>AI Agent Team</h2>
+  <p class="meta">How this repository is built and maintained by a team of
+  Claude Code agents and skills. Source: <code>docs/{html.escape(team_doc)}</code>.</p>
+  <div class="doclayout">
+    <nav id="docnav">{nav}</nav>
+    <article id="doccontent">Loading…</article>
+    <nav id="toc" class="toc"></nav>
+  </div>
+  {MD_RENDER_JS}
+"""
+    return page_shell("team.html", "mmap simulator - Team", body)
 
 
 def mermaid_graph(jobs):
@@ -529,6 +662,7 @@ def main():
     if os.path.isfile(viz_src):
         shutil.copyfile(viz_src, os.path.join(args.out, "vma_viz.js"))
 
+    team_doc = "agent_team.md" if "agent_team.md" in doc_files else ""
     rev = reverse_map(trace_rows)
     pages = {
         "index.html": render_overview(suites, jobs, trace_rows,
@@ -536,6 +670,7 @@ def main():
         "tests.html": render_tests(suites, rev),
         "visualize.html": render_visualize(),
         "docs.html": render_docs(doc_files),
+        "team.html": render_team(team_doc),
     }
     for name, content in pages.items():
         with open(os.path.join(args.out, name), "w", encoding="utf-8") as f:
