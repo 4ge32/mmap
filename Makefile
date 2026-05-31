@@ -3,7 +3,11 @@
 # Targets:
 #   make all        build the core object files
 #   make test       build and run all unit tests (zero-dependency harness)
-#   make test-asan  run unit tests under ASan/UBSan
+#   make test-vma / test-mmap-ops / test-ldso-replay
+#                   build and run one unit-test suite (used by CI for
+#                   self-explanatory, per-suite step titles)
+#   make test-asan  run all unit tests under ASan/UBSan
+#   make asan-bins  build (only) all unit-test binaries with ASan/UBSan
 #   make proof      run Frama-C/WP proofs (SKIPs cleanly if frama-c absent)
 #   make verify     run scripts/verify.sh (two-tier: tests [+ proofs])
 #   make clean
@@ -21,7 +25,8 @@ CORE_OBJ := $(CORE_SRC:.c=.o)
 TEST_SRC := tests/test_vma.c tests/test_mmap_ops.c tests/test_ldso_replay.c
 TEST_BIN := $(patsubst tests/%.c,build/%,$(TEST_SRC))
 
-.PHONY: all clean test test-asan proof verify
+.PHONY: all clean test test-vma test-mmap-ops test-ldso-replay \
+        test-asan asan-bins proof verify
 
 all: $(CORE_OBJ)
 
@@ -41,8 +46,22 @@ test: $(TEST_BIN)
 	 if [ $$rc -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "TESTS FAILED"; fi; \
 	 exit $$rc
 
+# Per-suite run targets: build (via the pattern rule) and run a single suite.
+# CI invokes these so each step has a self-explanatory title.
+test-vma: build/test_vma
+	@./$<
+test-mmap-ops: build/test_mmap_ops
+	@./$<
+test-ldso-replay: build/test_ldso_replay
+	@./$<
+
 test-asan: CFLAGS += $(ASAN)
 test-asan: clean test
+
+# Build all test binaries with ASan/UBSan but do not run them, so CI can run
+# each suite as a separately-titled step against the instrumented binaries.
+asan-bins: CFLAGS += $(ASAN)
+asan-bins: clean $(TEST_BIN)
 
 proof:
 	@if command -v frama-c >/dev/null 2>&1; then \

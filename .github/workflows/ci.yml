@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   tests:
-    name: build & tests (mandatory)
+    name: Build & unit tests — gcc, ASan/UBSan, clang (mandatory)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +28,28 @@ jobs:
       - name: Build core (gcc, strict warnings)
         run: make all
 
-      - name: Unit tests (gcc)
-        run: make test
+      - name: "Unit tests (gcc) — VMA primitives: split/insert/remove/merge & overflow guards"
+        run: make test-vma
 
-      - name: Unit tests (ASan/UBSan)
-        run: make test-asan
+      - name: "Unit tests (gcc) — mmap/mprotect/munmap operations & as_wf invariant"
+        run: make test-mmap-ops
 
-      - name: Build & test with clang
+      - name: "Unit tests (gcc) — ld.so mapping-sequence replay (PROT_NONE reserve → MAP_FIXED segments → bss → GNU_RELRO)"
+        run: make test-ldso-replay
+
+      - name: Build all unit tests under ASan/UBSan
+        run: make asan-bins
+
+      - name: "ASan/UBSan — VMA primitives & overflow guards"
+        run: ./build/test_vma
+
+      - name: "ASan/UBSan — mmap/mprotect/munmap operations & as_wf invariant"
+        run: ./build/test_mmap_ops
+
+      - name: "ASan/UBSan — ld.so mapping-sequence replay"
+        run: ./build/test_ldso_replay
+
+      - name: "Build & run all unit tests with clang (compiler-portability check)"
         run: make clean && make test CC=clang
 
   proofs:
