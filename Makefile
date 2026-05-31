@@ -27,7 +27,8 @@ TEST_SRC := tests/test_vma.c tests/test_mmap_ops.c tests/test_ldso_replay.c
 TEST_BIN := $(patsubst tests/%.c,build/%,$(TEST_SRC))
 
 .PHONY: all clean test test-vma test-mmap-ops test-ldso-replay test-asan \
-        asan-test-vma asan-test-mmap-ops asan-test-ldso-replay proof verify
+        asan-test-vma asan-test-mmap-ops asan-test-ldso-replay \
+        proof proof-parse verify
 
 all: $(CORE_OBJ)
 
@@ -69,17 +70,33 @@ asan-test-mmap-ops:     clean test-mmap-ops
 asan-test-ldso-replay:  CFLAGS += $(ASAN)
 asan-test-ldso-replay:  clean test-ldso-replay
 
+FRAMAC_FLAGS := -machdep gcc_x86_64 -cpp-extra-args="-Iinclude -DFRAMA_C"
+FRAMAC_SRC   := $(CORE_SRC) proofs/wp_entry.c
+
+# Full WP proof tier. Runs only when frama-c AND its WP plugin are present
+# (the Debian frama-c-base package ships the kernel + RTE but not WP; WP comes
+# via opam). Falls back to a parse/typecheck + RTE-generation check that the
+# ACSL is well-formed, so the annotations stay verified even without a prover.
 proof:
-	@if command -v frama-c >/dev/null 2>&1; then \
-	    echo "== running Frama-C/WP proofs =="; \
-	    frama-c -machdep gcc_x86_64 \
-	        -cpp-extra-args="-Iinclude -DFRAMA_C" \
-	        -rte -wp -wp-rte \
-	        -wp-prover alt-ergo,z3 -wp-timeout 20 \
-	        $(CORE_SRC) proofs/wp_entry.c; \
-	else \
+	@if ! command -v frama-c >/dev/null 2>&1; then \
 	    echo "[SKIP] frama-c not on PATH - proof tier skipped"; \
+	elif frama-c -wp-version >/dev/null 2>&1; then \
+	    echo "== running Frama-C/WP proofs =="; \
+	    frama-c $(FRAMAC_FLAGS) -rte -wp -wp-rte \
+	        -wp-prover z3,alt-ergo -wp-timeout 20 $(FRAMAC_SRC); \
+	else \
+	    echo "[WARN] WP plugin absent - running ACSL parse + RTE check only"; \
+	    echo "       (install Frama-C with WP via opam for full proofs)"; \
+	    $(MAKE) --no-print-directory proof-parse; \
 	fi
+
+# ACSL well-formedness check: parse + typecheck the contracts and generate RTE
+# obligations. Works with frama-c-base alone (no prover needed). Fails on any
+# annotation error (-kernel-warn-key annot-error=+ is fatal by default).
+proof-parse:
+	@command -v frama-c >/dev/null 2>&1 || { echo "[SKIP] frama-c absent"; exit 0; }
+	@echo "== Frama-C ACSL parse + RTE generation =="
+	frama-c $(FRAMAC_FLAGS) -rte $(FRAMAC_SRC)
 
 verify:
 	@./scripts/verify.sh

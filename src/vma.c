@@ -14,7 +14,7 @@
 
 /*@
   assigns \nothing;
-  ensures \result <==> (a + b > UINT64_MAX);
+  ensures \result <==> acsl_add_overflows(a, b);
 */
 bool add_overflows(uint64_t a, uint64_t b)
 {
@@ -23,7 +23,7 @@ bool add_overflows(uint64_t a, uint64_t b)
 
 /*@
   assigns \nothing;
-  ensures \result <==> (len + (PAGE_SIZE - 1) > UINT64_MAX);
+  ensures \result <==> acsl_round_up_overflows(len);
 */
 bool round_up_overflows(uint64_t len)
 {
@@ -31,7 +31,7 @@ bool round_up_overflows(uint64_t len)
 }
 
 /*@
-  requires !round_up_overflows(len);
+  requires !acsl_round_up_overflows(len);
   assigns \nothing;
   ensures acsl_aligned(\result);
   ensures \result >= len;
@@ -81,7 +81,7 @@ bool vma_mergeable(const struct vma *a, const struct vma *b)
   requires as->count < VMA_CAP;
   requires as->vmas[idx].start < split_addr < as->vmas[idx].end;
   requires acsl_aligned(split_addr);
-  assigns as->vmas[0..VMA_CAP-1], as->count;
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
   ensures \result == MM_OK ==> as->count == \old(as->count) + 1;
 */
 mm_status as_split_at(struct addr_space *as, size_t idx, uint64_t split_addr)
@@ -124,7 +124,7 @@ mm_status as_split_at(struct addr_space *as, size_t idx, uint64_t split_addr)
   requires \valid(as);
   requires 0 <= idx <= as->count;
   requires as->count < VMA_CAP;
-  assigns as->vmas[0..VMA_CAP-1], as->count;
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
   ensures \result == MM_OK ==> as->count == \old(as->count) + 1;
 */
 mm_status as_insert_at(struct addr_space *as, size_t idx, struct vma v)
@@ -150,7 +150,7 @@ mm_status as_insert_at(struct addr_space *as, size_t idx, struct vma v)
 /*@
   requires \valid(as);
   requires 0 <= lo <= hi <= as->count;
-  assigns as->vmas[0..VMA_CAP-1], as->count;
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
   ensures as->count == \old(as->count) - (hi - lo);
 */
 void as_remove_range(struct addr_space *as, size_t lo, size_t hi)
