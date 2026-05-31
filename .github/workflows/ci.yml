@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "claude/**" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # One job per suite, so each shows up as its own self-explanatory status
+  # check ("CI / <title>"). Each runs the suite under gcc (emitting a JUnit
+  # report) and under ASan/UBSan, then uploads the report for test-report.
+  unit-tests:
+    name: ${{ matrix.title }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: test-vma
+            title: "VMA primitives: split/insert/remove/merge & overflow guards"
+          - target: test-mmap-ops
+            title: "mmap/mprotect/munmap operations & as_wf invariant"
+          - target: test-ldso-replay
+            title: "ld.so mapping-sequence replay (PROT_NONE reserve → MAP_FIXED segments → bss → GNU_RELRO)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run suite (gcc, strict warnings) + emit JUnit
+        run: |
+          mkdir -p reports
+          JUNIT_XML=reports/${{ matrix.target }}.xml make ${{ matrix.target }}
+
+      - name: Run suite under ASan/UBSan
+        run: make asan-${{ matrix.target }}
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.target }}
+          path: reports/${{ matrix.target }}.xml
+          if-no-files-found: error
+
+  clang-portability:
+    name: clang build & all unit tests (portability)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & run all suites with clang
+        run: make clean && make test CC=clang
+
+  # Consume the JUnit artifacts and publish a per-test breakdown (each test
+  # function as a row) in the Checks UI.
+  test-report:
+    name: Per-test results (Checks UI)
+    needs: unit-tests
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: junit-*
+          merge-multiple: true
+      - name: Publish JUnit results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: reports/**/*.xml
+          check_name: "Unit test results (per test)"
+          comment_mode: "off"
+
+  proofs:
+    name: Frama-C/WP proofs (informational)
+    runs-on: ubuntu-latest
+    # Non-blocking: the proof tier is additive. The M2 contracts are authored
+    # but not all goals are discharged yet, and prover availability varies, so
+    # this job reports status without gating the workflow. Flip to a required
+    # check (or set VERIFY_REQUIRE_PROOF=1) once WP goals are fully discharged.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Frama-C and provers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y frama-c z3 alt-ergo || true
+
+      - name: Detect provers (why3)
+        run: why3 config detect || true
+
+      - name: Report versions
+        run: |
+          frama-c --version || echo "frama-c not installed"
+          z3 --version || true
+          alt-ergo --version || true
+
+      - name: Run WP proofs
+        run: make proof
+
+  # Build a single static dashboard (test results at a glance + the job
+  # dependency graph) and publish it to GitHub Pages. Deploys on main (and
+  # manual dispatch); runs even if tests failed, so failures are visible too.
+  # NOTE: requires Settings -> Pages -> "Build and deployment" Source = GitHub Actions.
+  pages:
+    name: Publish results dashboard (GitHub Pages)
+    needs: [unit-tests, clang-portability, proofs]
+    if: ${{ always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JUnit reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+          pattern: junit-*
+          merge-multiple: true
+
+      - name: Build dashboard
+        run: python3 tools/gen_dashboard.py --reports reports --workflow .github/workflows/ci.yml --out site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

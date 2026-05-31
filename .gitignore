@@ -1,0 +1,20 @@
+# build artifacts
+/build/
+*.o
+
+# generated test reports (JUnit XML)
+/reports/
+
+# generated Pages dashboard
+/site/
+
+# python caches (from tooling like gen_dashboard.py)
+__pycache__/
+*.pyc
+
+# bootstrap marker (session-local)
+/.bootstrap-done
+
+# Frama-C session/state
+/.frama-c/
+*.sav

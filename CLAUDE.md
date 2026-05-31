@@ -2,15 +2,76 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status
+## Project
 
-This repository (`mmap`) is not yet scaffolded. At present it contains only a placeholder `README.md` and no source code, build system, tests, or configuration.
+A C-language **logical simulator of Linux `mmap` semantics**, faithful enough to
+model how a dynamic loader (`ld-linux` / `ld.so`) maps a shared object:
+`PROT_NONE` reservation, multiple `MAP_FIXED` overlays into that reservation,
+and `mprotect`-based protection switching. It is **pure bookkeeping — no real
+memory is allocated**; the virtual address space is a fixed-capacity, sorted,
+non-overlapping, maximally-merged (canonical) array of VMAs.
 
-There are therefore no build, lint, test, or run commands to document yet, and no architecture to describe.
+Correctness is established two ways: a runtime unit-test suite and Frama-C/WP
+deductive proofs of the same well-formedness invariant.
 
-## When the project is scaffolded
+## Commands
 
-Once source code, a build system, and tests exist, replace this stub by re-running `/init` (or updating this file directly) to document:
+```sh
+make all          # build the core object files
+make test         # build + run all unit tests (zero-dependency harness)
+make test-asan    # run tests under ASan/UBSan
+make proof        # Frama-C/WP proofs; SKIPs cleanly if frama-c is absent
+make verify       # scripts/verify.sh: two-tier (tests [+ proofs]) pass/fail
+./scripts/verify.sh   # same as `make verify`
 
-- Common commands: how to build, lint, run, and test — including how to run a single test.
-- High-level architecture: the big-picture structure that requires reading multiple files to understand.
+# run one suite (also: test-vma / test-ldso-replay; asan-test-* for sanitized):
+make test-mmap-ops
+
+# emit a JUnit report from a suite (CI consumes these for per-test Checks rows):
+JUNIT_XML=reports/test-mmap-ops.xml make test-mmap-ops
+```
+
+`VERIFY_REQUIRE_PROOF=1 ./scripts/verify.sh` turns a proof SKIP into a hard
+failure (for CI gates that mandate proofs).
+
+## Toolchain reality
+
+`gcc`/`make` are present, so **build + tests always work**. The proof tier
+needs `frama-c` plus a prover (`alt-ergo`/`z3`), which are **often absent** in
+the web environment and may be impossible to install when the network is
+restricted. `make proof` and the harness SKIP gracefully in that case — this
+is expected, not a failure. ACSL annotations are authored regardless so the
+core stays "proof-ready".
+
+## Architecture
+
+- **Provable core** (`src/`, fed to Frama-C): `vma.c` (primitives +
+  arithmetic guards), `addr_space.c` (container ops + the `as_check_wf`
+  runtime oracle), `mmap_ops.c` (`mm_mmap`/`mm_mprotect`/`mm_munmap`). The
+  three operations all reduce to the primitives `as_split_at` / `as_insert_at`
+  / `as_remove_range` plus an `as_canonicalize` merge pass.
+- **Headers** (`include/`): `mm_types.h` (types/constants), `mm_api.h` (public
+  API), `mm_internal.h` (primitives + oracle), `mm_acsl.h` (ACSL predicates,
+  including the central `as_wf` well-formedness invariant — invisible to the C
+  compiler, read only by Frama-C).
+- **Tests/tools** (never fed to Frama-C): `tests/` zero-dependency harness and
+  suites incl. the `tests/test_ldso_replay.c` loader-sequence scenario;
+  `tools/vma_dump.c` debug printer.
+- Specs: `docs/design.md`, `docs/mmap_model_spec.md`, `docs/ldso_sequence.md`.
+
+The `as_wf` invariant is the linchpin: it is defined once as an ACSL predicate
+(`mm_acsl.h`), mirrored at runtime (`as_check_wf`), and asserted after every
+operation in tests via `ASSERT_WF`. Keep all three in lockstep.
+
+## Rules for agents (enforced by convention)
+
+- **No dynamic allocation and no recursion in `src/`.** The `struct
+  addr_space` array IS the arena. This is what keeps the WP proof tractable.
+- Addresses/sizes are `uint64_t`; guard every `addr + length` and page
+  round-up against overflow (`add_overflows`, `round_up_overflows`).
+- Keep VMAs in canonical form after every public operation.
+- Keep ACSL contracts co-located with and in sync with the code.
+- **Editing boundaries** (see `.claude/agents/`): `simulator-implementer` owns
+  `src/`+`include/` logic; `proof-engineer` owns ACSL bodies + `proofs/`;
+  `test-engineer` owns `tests/`; `ldso-spec-researcher` owns
+  `docs/ldso_sequence.md`.

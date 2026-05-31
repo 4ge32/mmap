@@ -1,0 +1,16 @@
+# clang-format for the mmap simulator.
+# Conservative Linux-kernel-ish style. ACSL annotations live in /*@ ... */
+# block comments, which clang-format leaves intact (it does not reflow the
+# contents of block comments by default; ReflowComments is disabled to be sure).
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 90
+ReflowComments: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Right
+SortIncludes: false
+KeepEmptyLinesAtTheStartOfBlocks: false
