@@ -2,6 +2,9 @@
 /build/
 *.o
 
+# generated test reports (JUnit XML)
+/reports/
+
 # bootstrap marker (session-local)
 /.bootstrap-done
 

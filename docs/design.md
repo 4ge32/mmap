@@ -80,12 +80,27 @@ promotes a SKIP to a hard failure for CI gates that mandate proofs. The
 `SessionStart` hook (`scripts/bootstrap.sh`) reports available tiers and makes
 a non-fatal, idempotent attempt to install Frama-C.
 
-CI (`.github/workflows/ci.yml`) mirrors the two tiers: a **mandatory** `tests`
-job (gcc strict build, `make test`, `make test-asan`, plus a clang build/test)
-gates merges, and an **informational** `proofs` job installs Frama-C + provers
-and runs `make proof` with `continue-on-error` (the M2 goals are not all
-discharged yet and prover availability varies). Promote the proof job to a
-required check once WP goals are fully discharged.
+CI (`.github/workflows/ci.yml`) is structured so each test surfaces in the PR
+status checks (which are per-job):
+
+- **`unit-tests`** — a matrix with **one job per suite**, so each appears as its
+  own self-explanatory status check (`CI / VMA primitives…`, `CI / mmap…`,
+  `CI / ld.so mapping-sequence replay…`). Each runs the suite under gcc (with
+  `JUNIT_XML` set so the harness emits a JUnit report) and under ASan/UBSan via
+  the per-suite `asan-test-*` targets, and uploads the report as an artifact.
+- **`clang-portability`** — builds and runs the full suite with clang.
+- **`test-report`** — consumes the JUnit artifacts and publishes a per-test
+  breakdown (each test function as a row) in the Checks UI via
+  `EnricoMi/publish-unit-test-result-action`.
+- **`proofs`** — *informational* (`continue-on-error`): installs Frama-C +
+  provers and runs `make proof`. The M2 goals are not all discharged yet and
+  prover availability varies; promote to a required check once they are.
+
+The test harness (`tests/test_harness.h`) backs this: `RUN_TEST(fn, "desc")`
+records each test with a human-readable description, prints a `[PASS]/[FAIL]`
+line (plus GitHub Actions `::group::`/`::error::` annotations under CI), and
+writes JUnit XML when `JUNIT_XML` is set. `make test` / `scripts/verify.sh`
+remain the local two-tier entry points.
 
 ## F. Conventions
 

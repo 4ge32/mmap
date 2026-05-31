@@ -24,8 +24,11 @@ make proof        # Frama-C/WP proofs; SKIPs cleanly if frama-c is absent
 make verify       # scripts/verify.sh: two-tier (tests [+ proofs]) pass/fail
 ./scripts/verify.sh   # same as `make verify`
 
-# run a single test binary directly:
-make build/test_mmap_ops && ./build/test_mmap_ops
+# run one suite (also: test-vma / test-ldso-replay; asan-test-* for sanitized):
+make test-mmap-ops
+
+# emit a JUnit report from a suite (CI consumes these for per-test Checks rows):
+JUNIT_XML=reports/test-mmap-ops.xml make test-mmap-ops
 ```
 
 `VERIFY_REQUIRE_PROOF=1 ./scripts/verify.sh` turns a proof SKIP into a hard
