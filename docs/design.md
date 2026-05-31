@@ -70,7 +70,9 @@ Strict editing boundaries keep reviews tractable:
 - **proof-engineer** — ACSL bodies + `proofs/` (specs only).
 - **test-engineer** — `tests/` + `docs/requirements.json` test mappings.
 - **ldso-spec-researcher** — `docs/ldso_sequence.md`.
-- **design-visualizer** — `tools/vma_viz.js` + Mermaid in `docs/*.md`.
+- **design-visualizer** — the interactive address-space visualizer
+  (`tools/vma_viz.js`, surfaced on the Pages "Visualize" tab) and the Mermaid
+  diagrams embedded in `docs/*.md`, kept in sync with the spec and tests.
 - **dev-lead** — orchestrator: decomposes a goal, picks delegates, defines
   acceptance criteria, reviews results. Plans/reviews; does not bulk-edit.
 
@@ -129,12 +131,15 @@ status checks (which are per-job):
   provers and runs `make proof`. The M2 goals are not all discharged yet and
   prover availability varies; promote to a required check once they are.
 - **`pages`** — on `main` (or manual dispatch), builds a static GitHub Pages
-  site via `tools/gen_dashboard.py` and deploys it. The site has three pages
+  site via `tools/gen_dashboard.py` and deploys it. The site has four pages
   sharing a nav: **Overview** (overall badge, a requirement→test
   *traceability matrix*, and the CI job-dependency graph as Mermaid),
   **Tests** (per-suite/per-test results, each annotated with the requirements
-  it covers), and **Docs** (the `docs/*.md` design documents rendered
-  client-side with `marked`). Traceability is driven by the registry
+  it covers), **Visualize** (an interactive SVG address-space viewer,
+  `tools/vma_viz.js`, that steps through the mmap/mprotect/munmap and ld.so
+  scenarios), and **Docs** (the `docs/*.md` design documents rendered
+  client-side with `marked`, including their embedded Mermaid diagrams).
+  Traceability is driven by the registry
   `docs/requirements.json`, whose per-requirement `tests` strings must match
   the JUnit `<testcase name>` values; the generator warns on any unmatched
   test name or unmapped test. **When you add a requirement or a test, update

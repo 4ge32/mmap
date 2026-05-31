@@ -7,6 +7,22 @@ our simulator must reproduce. The replay test
 (`tests/test_ldso_replay.c`) derives its assertions from the synthetic example
 below; keep the two in sync.
 
+The five steps, as a sequence of operations on the address space:
+
+```mermaid
+sequenceDiagram
+  participant L as ld.so
+  participant AS as address space
+  L->>AS: mmap PROT_NONE [0,7) (reserve whole image)
+  L->>AS: mmap MAP_FIXED r-x [0,2) file (text)
+  L->>AS: mmap MAP_FIXED rw- [3,5) file (data; [2,3) gap stays NONE)
+  L->>AS: mmap MAP_FIXED rw- [5,7) anon (bss)
+  L->>AS: mprotect r-- [3,4) (GNU_RELRO)
+  Note over AS: canonical: 5 VMAs, as_wf holds
+```
+
+> The interactive [Visualize](visualize.html) tab animates this sequence.
+
 ## The real loader sequence
 
 1. **Whole-object reservation.** The loader computes the total memory span of

@@ -30,7 +30,8 @@ make test-mmap-ops
 # emit a JUnit report from a suite (CI consumes these for per-test Checks rows):
 JUNIT_XML=reports/test-mmap-ops.xml make test-mmap-ops
 
-# build the GitHub Pages site locally (Overview + traceability, Tests, Docs);
+# build the GitHub Pages site locally (Overview + traceability, Tests,
+# Visualize [interactive VMA viewer], Docs [rendered design specs]);
 # serve over HTTP so the Docs page can fetch docs/*.md:
 python3 tools/gen_dashboard.py --reports reports --requirements docs/requirements.json --docs docs --out site
 python3 -m http.server -d site
@@ -80,8 +81,8 @@ operation in tests via `ASSERT_WF`. Keep all three in lockstep.
   `src/`+`include/` logic; `proof-engineer` owns ACSL bodies + `proofs/`;
   `test-engineer` owns `tests/` + `docs/requirements.json` mappings;
   `ldso-spec-researcher` owns `docs/ldso_sequence.md`; `design-visualizer` owns
-  `tools/vma_viz.js` + Mermaid in `docs/*.md`. CI/tooling/cross-cutting docs are
-  the main thread's.
+  the interactive visualizer (`tools/vma_viz.js`) and the Mermaid diagrams in
+  `docs/*.md`. CI/tooling/cross-cutting docs are the main thread's.
 
 ## Autonomous development loop
 
