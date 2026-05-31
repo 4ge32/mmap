@@ -100,6 +100,9 @@ jobs:
     # behind success). continue-on-error keeps it from gating the merge while
     # M2 goal discharge is in progress.
     continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -129,7 +132,61 @@ jobs:
           opam exec -- z3 --version || echo "z3 absent"
 
       - name: Run WP proofs (require WP — fail visibly if it is missing)
-        run: opam exec -- make proof PROOF_REQUIRE_WP=1
+        id: wp
+        run: |
+          set -o pipefail
+          opam exec -- make proof PROOF_REQUIRE_WP=1 2>&1 | tee wp-output.txt
+        # Don't let the (expected, while M2 is in progress) non-zero exit abort
+        # the reporting steps below; the job is already continue-on-error.
+        continue-on-error: true
+
+      - name: Summarize WP goals
+        if: always()
+        run: |
+          # WP prints lines like "[wp] Proved goals:   42 / 50". Collect the
+          # summary + any unproved goals so the report is readable from the PR.
+          python3 - <<'PY' | tee wp-report.md
+          import re
+          txt = open("wp-output.txt", encoding="utf-8", errors="replace").read()
+          # Keep the WP-relevant lines (summary + any unproved goal diagnostics).
+          keep = [l for l in txt.splitlines()
+                  if re.search(r"Proved goals|Qed|Alt-Ergo|Z3|Timeout|Unknown|Failed|Goal ", l)]
+          m = re.search(r"Proved goals:\s*(\d+)\s*/\s*(\d+)", txt)
+          print("### Frama-C/WP proof report\n")
+          print("```")
+          print("\n".join(keep[-60:]) or "(no WP summary captured)")
+          print("```\n")
+          if m and m.group(1) == m.group(2):
+              print(f"✅ All WP goals discharged ({m.group(1)}/{m.group(2)}).")
+          elif m:
+              print(f"⚠️ {m.group(1)}/{m.group(2)} WP goals discharged — M2 in progress.")
+          else:
+              print("⚠️ No WP summary found (WP may have failed to run).")
+          PY
+          cat wp-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post WP report as a sticky PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          body=$(cat wp-report.md)
+          marker="<!-- wp-proof-report -->"
+          payload=$(python3 -c "import json,sys; print(json.dumps({'body': sys.argv[1]+'\n\n'+sys.argv[2]}))" "$marker" "$body")
+          # Find an existing report comment to update; else create one.
+          existing=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$PR/comments?per_page=100" \
+            | python3 -c "import json,sys; cs=json.load(sys.stdin); print(next((str(c['id']) for c in cs if '$marker' in c.get('body','')), ''))")
+          if [ -n "$existing" ]; then
+            curl -sS -X PATCH -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/comments/$existing" \
+              -d "$payload" >/dev/null && echo "updated comment $existing"
+          else
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/$PR/comments" \
+              -d "$payload" >/dev/null && echo "created WP report comment"
+          fi
 
   # Build a single static dashboard (test results at a glance + the job
   # dependency graph) and publish it to GitHub Pages. Deploys on main (and
