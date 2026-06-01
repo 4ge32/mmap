@@ -132,10 +132,12 @@ guarded. Cases:
   `fd`, with `file_offset` continued for file mappings, and the **same `map_id`**;
   `as_canonicalize` re-merges it into one VMA. The base is unchanged.
 - **Grow with move** (no room, `MREMAP_MAYMOVE` set): pick a new base via
-  `as_find_free`, recreate the region there preserving the source's attributes
-  and **`map_id`** (the mapping keeps its identity across the move), then
-  `mm_munmap` the old range. The old range is unmapped first, while the address
-  space is still well-formed. Returns the new base in `*out_addr`.
+  `as_find_free`; then **`mm_munmap` the old range first** (while the address
+  space is still well-formed, since `mm_munmap` requires `as_wf`), and only
+  afterwards insert the relocated region at the new base, preserving the
+  source's attributes and **`map_id`** (the mapping keeps its identity across
+  the move). `as_find_free` runs before the unmap, so the chosen hole cannot
+  overlap the still-mapped old range. Returns the new base in `*out_addr`.
 - **Grow, no room, no `MREMAP_MAYMOVE`**: `MM_ENOMEM`, no mutation.
 
 `MREMAP_FIXED` (caller-chosen destination) is reserved but not implemented.
@@ -148,7 +150,7 @@ flowchart TD
   B -->|grow| E{tail free &amp; in-bounds?}
   E -->|yes| F["extend in place<br/>(same map_id) → re-merge to one VMA"]
   E -->|no| G{MREMAP_MAYMOVE?}
-  G -->|yes| H["as_find_free new base<br/>recreate (same map_id) → munmap old"]
+  G -->|yes| H["as_find_free new base<br/>munmap old first → recreate (same map_id)"]
   G -->|no| I["MM_ENOMEM<br/>(no mutation)"]
 ```
 

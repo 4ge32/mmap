@@ -349,6 +349,14 @@ mm_status mm_mremap(struct addr_space *as,
         return MM_ENOMEM;
     uint64_t new_end = old_addr + nlen;
 
+    /* For a file mapping, the grown file extent is src.file_offset + nlen.
+     * Guard it against uint64_t overflow exactly as mm_mmap does at creation,
+     * so mremap can never produce a file VMA that mm_mmap could not have made
+     * (an unrepresentable file extent would corrupt later split/merge offset
+     * arithmetic). */
+    if (src.backing == VMA_FILE && add_overflows(src.file_offset, nlen))
+        return MM_EINVAL;
+
     /* 3a: in-place extension if the gap [old_end, new_end) is free and in
      * bounds. The extension carries the SAME map_id/prot/flags/backing/fd, so
      * canonicalize re-merges it into the source VMA. */
