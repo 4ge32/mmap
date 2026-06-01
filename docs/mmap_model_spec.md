@@ -83,8 +83,15 @@ flowchart LR
   is chosen via `as_find_free` (top-down first-fit).
 - Insert the new VMA, then `as_canonicalize`. Returns the chosen base in
   `*out_addr`.
+- **`MAP_FIXED_NOREPLACE`**: places exactly at `addr` like `MAP_FIXED`, but if
+  *any* existing mapping overlaps `[addr, addr+len)` it fails with `MM_EEXIST`
+  and changes nothing (a no-mutation early return before the hole-punch),
+  instead of overlaying. This activates the otherwise-reserved `MM_EEXIST`.
 
 ```vma-viz map-fixed-overlay
+```
+
+```vma-viz map-fixed-noreplace
 ```
 
 ### `mm_mprotect`
@@ -104,9 +111,48 @@ flowchart LR
 ```vma-viz munmap-hole
 ```
 
+### `mm_mremap`
+Resize an existing mapping. The source must be **exactly one VMA** spanning
+`[old_addr, old_addr+old_len)` (the model resizes a whole mapping; otherwise
+`MM_EINVAL`). `old_len`/`new_len` are rounded up to page multiples and overflow-
+guarded. Cases:
+
+- **Equal** (`new_len == old_len`): no-op; returns `old_addr`.
+- **Shrink** (`new_len < old_len`): `mm_munmap` the tail
+  `[old_addr+new_len, old_addr+old_len)`; the base is unchanged.
+- **Grow in place** (`new_len > old_len`, the following range is free and
+  in-bounds): insert an extension carrying the source's `prot`/`flags`/`backing`/
+  `fd`, with `file_offset` continued for file mappings, and the **same `map_id`**;
+  `as_canonicalize` re-merges it into one VMA. The base is unchanged.
+- **Grow with move** (no room, `MREMAP_MAYMOVE` set): pick a new base via
+  `as_find_free`, recreate the region there preserving the source's attributes
+  and **`map_id`** (the mapping keeps its identity across the move), then
+  `mm_munmap` the old range. The old range is unmapped first, while the address
+  space is still well-formed. Returns the new base in `*out_addr`.
+- **Grow, no room, no `MREMAP_MAYMOVE`**: `MM_ENOMEM`, no mutation.
+
+`MREMAP_FIXED` (caller-chosen destination) is reserved but not implemented.
+
+```vma-viz mremap-resize
+```
+
+### `mm_munmap_object` (dlclose)
+Unload an entire shared object in one call: remove every VMA whose `map_id`
+matches, via a single left-to-right compaction. Idempotent — an unknown
+`map_id` is a no-op returning `MM_OK`. Because removal only opens gaps it cannot
+create a newly-mergeable pair, and the post-state guarantees no VMA with that
+`map_id` remains (a proven postcondition). This models `dlclose` tearing down a
+mapping group placed by the loader.
+
+```vma-viz dlclose-unload
+```
+
 ## Out of scope (phase 1 non-goals)
 
-`MAP_SHARED` semantics, `MAP_GROWSDOWN`, `mremap`, hugepages,
-`MAP_NORESERVE` accounting, and bit-exact placement compatibility with a
-specific kernel version. The placement policy is deterministic but only
-documented, not claimed kernel-identical.
+`MAP_SHARED` semantics, `MAP_GROWSDOWN`, `MAP_NORESERVE` accounting,
+`MREMAP_FIXED` (caller-chosen `mremap` destination), distinct hugepage tracking,
+and bit-exact placement compatibility with a specific kernel version. (The
+loader's hugepage-alignment *logic* is modeled — see the alignment-overshoot
+scenario in `docs/ldso_sequence.md` — even though pages themselves are uniform.)
+The placement policy is deterministic but only documented, not claimed
+kernel-identical.
