@@ -22,9 +22,12 @@ void as_init(struct addr_space *as)
 
 /*@
   requires \valid(as) && \valid(lo) && \valid(hi);
+  requires \separated(lo, hi);
+  requires \separated(as, lo) && \separated(as, hi);
+  requires 0 <= as->count <= VMA_CAP;
   requires start < end;
   assigns *lo, *hi;
-  ensures *lo <= *hi <= as->count;
+  ensures 0 <= *lo <= *hi <= as->count;
 */
 void as_find_range(const struct addr_space *as, uint64_t start, uint64_t end,
                    size_t *lo, size_t *hi)
@@ -60,8 +63,10 @@ void as_find_range(const struct addr_space *as, uint64_t start, uint64_t end,
  */
 /*@
   requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
   assigns as->vmas[0 .. VMA_CAP - 1], as->count;
-  ensures as->count <= \old(as->count);
+  ensures 0 <= as->count <= \old(as->count);
+  ensures 0 <= as->count <= VMA_CAP;
 */
 void as_canonicalize(struct addr_space *as)
 {
@@ -73,7 +78,8 @@ void as_canonicalize(struct addr_space *as)
     /*@
       loop invariant 1 <= i <= as->count;
       loop invariant 0 <= w < i;
-      loop assigns i, w, as->vmas[0 .. as->count - 1];
+      loop invariant as->count <= VMA_CAP;
+      loop assigns i, w, as->vmas[0 .. VMA_CAP - 1];
       loop variant as->count - i;
     */
     for (size_t i = 1; i < as->count; i++) {
@@ -94,8 +100,17 @@ void as_canonicalize(struct addr_space *as)
  */
 /*@
   requires \valid(as) && \valid(out);
+  requires \separated(as, out);
+  requires 0 <= as->count <= VMA_CAP;
+  requires as->as_min <= as->as_max;
+  // every VMA sits within the reservation (a consequence of as_wf at the call
+  // site) - this keeps the downward scan cursor `hi` bounded by as_max.
+  requires \forall integer j; 0 <= j < as->count ==> acsl_vma_ok(as, j);
   requires acsl_aligned(length) && length > 0;
   assigns *out;
+  // A successful placement always lies within the reservation window, so the
+  // caller's `*out + length` can never overflow (as_max <= AS_MAX < UINT64_MAX).
+  ensures \result == MM_OK ==> *out + length <= as->as_max;
 */
 mm_status as_find_free(const struct addr_space *as, uint64_t length,
                        uint64_t *out)
@@ -106,6 +121,11 @@ mm_status as_find_free(const struct addr_space *as, uint64_t length,
 
     /*@
       loop invariant 0 <= k <= as->count;
+      loop invariant as->count <= VMA_CAP;
+      loop invariant hi <= as->as_max;
+      // carried from acsl_vma_ok in the precondition; bounds the cursor update
+      loop invariant \forall integer j; 0 <= j < as->count ==>
+          as->vmas[j].start <= as->as_max;
       loop assigns hi, *out, k;
       loop variant k;
     */
@@ -124,6 +144,11 @@ mm_status as_find_free(const struct addr_space *as, uint64_t length,
 
 /* ---- runtime well-formedness oracle (mirror of ACSL as_wf) ---- */
 
+/*@
+  requires \valid_read(as);
+  requires 0 <= as->count <= VMA_CAP;
+  assigns \nothing;
+*/
 bool as_check_wf(const struct addr_space *as)
 {
     if (as->count > VMA_CAP)
@@ -131,6 +156,11 @@ bool as_check_wf(const struct addr_space *as)
     if (as->as_min > as->as_max)
         return false;
 
+    /*@
+      loop invariant 0 <= k <= as->count;
+      loop assigns k;
+      loop variant as->count - k;
+    */
     for (size_t k = 0; k < as->count; k++) {
         const struct vma *v = &as->vmas[k];
         if (!(as->as_min <= v->start))
@@ -147,6 +177,11 @@ bool as_check_wf(const struct addr_space *as)
             return false;
     }
 
+    /*@
+      loop invariant 0 <= k <= as->count;
+      loop assigns k;
+      loop variant as->count - k;
+    */
     for (size_t k = 0; k + 1 < as->count; k++) {
         /* sorted and disjoint */
         if (!(as->vmas[k].end <= as->vmas[k + 1].start))

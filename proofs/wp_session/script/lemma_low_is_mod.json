@@ -1,0 +1,6 @@
+[ { "header": "Mod-Mask", "tactic": "Wp.modmask",
+    "params": { "Wp.modmask.revert": false },
+    "select": { "select": "inside-goal", "occur": 0,
+                "target": "x % 4096", "pattern": "%$x4096" },
+    "children": { "Mask Guard": [ { "prover": "alt-ergo", "verdict": "valid" } ],
+                  "Mask": [ { "prover": "alt-ergo", "verdict": "valid" } ] } } ]

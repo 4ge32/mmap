@@ -14,8 +14,30 @@ WP, with the RTE plugin (`-rte -wp-rte`), additionally discharges runtime-error
 obligations: no out-of-bounds array access, no signed/unsigned overflow in the
 page arithmetic, no division by zero.
 
-Functional byte-level outcomes and the ld.so replay scenario are covered by the
-runtime test suite, not by WP (see `docs/design.md` §B.2).
+Current status: `make proof PROOF_REQUIRE_WP=1` discharges **658 / 658** goals
+(zero Timeout/Unknown/Failed). All three public ops carry `requires as_wf(as)`
+and prove `ensures 0 <= as->count <= VMA_CAP` end-to-end, plus the strengthened
+primitive postconditions and all RTE goals. The *geometric* half of
+`ensures as_wf` (sorted/disjoint/canonical) on the public ops is the remaining
+open M2 headline, documented in `docs/design.md` §B.2; functional byte-level
+outcomes and the ld.so replay scenario are likewise covered by the runtime test
+suite, not by WP.
+
+### Page-mask foundation and the script session
+
+`proofs/wp_session/` holds one committed WP proof script,
+`script/lemma_low_is_mod.json`, which discharges the lemma
+`low_is_mod : x & PAGE_MASK == x % PAGE_SIZE` via the `Wp.modmask` tactic (WP's
+SMT back-ends do not prove it directly). The Makefile `proof` target therefore
+runs with `-wp-session proofs/wp_session -wp-prover script,z3,alt-ergo` so the
+script is replayed. The companion fact `high_split`
+(`x & ~PAGE_MASK == x - x%PAGE_SIZE`) is an `axiom` in `proofs/wp_entry.c` — a
+true bit-vector identity outside the reach of Alt-Ergo/Z3 in WP's integer
+model; see that file's header for the rationale.
+
+`-no-warn-unaligned-pointer` (in `FRAMAC_FLAGS`) suppresses RTE `\aligned(...)`
+pointer-alignment alarms, which WP cannot model ("\aligned not yet implemented")
+and which carry no real content for in-array struct-element addresses.
 
 ## Running
 

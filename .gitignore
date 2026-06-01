@@ -18,3 +18,8 @@ __pycache__/
 # Frama-C session/state
 /.frama-c/
 *.sav
+
+# WP prover cache (regenerable, environment-specific). The durable proof
+# artifact is proofs/wp_session/script/, which IS tracked.
+/proofs/wp_session/cache/
+/proofs/wp_session/script/.marks/

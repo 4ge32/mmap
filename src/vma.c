@@ -63,6 +63,12 @@ bool vma_mergeable(const struct vma *a, const struct vma *b)
         return false;
     if (a->prot != b->prot || a->flags != b->flags || a->backing != b->backing)
         return false;
+    /* Distinct logical mappings (e.g. different ld.so objects) never coalesce,
+     * even when otherwise compatible, so a multi-object layout stays faithful
+     * to its per-object boundaries. A split preserves map_id, so the two halves
+     * of one mapping still re-merge once an mprotect makes their prot equal. */
+    if (a->map_id != b->map_id)
+        return false;
     if (a->backing == VMA_FILE) {
         if (a->fd != b->fd)
             return false;
@@ -77,12 +83,25 @@ bool vma_mergeable(const struct vma *a, const struct vma *b)
 
 /*@
   requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
   requires 0 <= idx < as->count;
-  requires as->count < VMA_CAP;
   requires as->vmas[idx].start < split_addr < as->vmas[idx].end;
   requires acsl_aligned(split_addr);
   assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
   ensures \result == MM_OK ==> as->count == \old(as->count) + 1;
+  // the left half keeps its start, ends at the split point
+  ensures \result == MM_OK ==> as->vmas[idx].start == \old(as->vmas[idx].start);
+  ensures \result == MM_OK ==> as->vmas[idx].end == split_addr;
+  // the right half starts at the split point, keeps the old end
+  ensures \result == MM_OK ==> as->vmas[idx + 1].start == split_addr;
+  ensures \result == MM_OK ==> as->vmas[idx + 1].end == \old(as->vmas[idx].end);
+  // everything before idx is untouched; everything after idx shifts up by one
+  ensures \result == MM_OK ==>
+    (\forall integer k; 0 <= k < idx ==> as->vmas[k] == \old(as->vmas[k]));
+  ensures \result == MM_OK ==>
+    (\forall integer k; idx + 1 < k <= \old(as->count) ==>
+        as->vmas[k] == \old(as->vmas[k - 1]));
 */
 mm_status as_split_at(struct addr_space *as, size_t idx, uint64_t split_addr)
 {
@@ -106,10 +125,21 @@ mm_status as_split_at(struct addr_space *as, size_t idx, uint64_t split_addr)
 
     v->end = split_addr;
 
-    /* shift tail up by one to open a slot at idx+1 */
+    /* shift tail up by one to open a slot at idx+1. The only mutation before
+     * this point is `v->end = split_addr` at index idx, so for every source
+     * index k-1 > idx the loop copies a value still equal to its Pre value;
+     * the upper invariant is therefore phrased against Pre, which lets the
+     * function-level tail-shift postcondition (ensures k>idx+1) close directly. */
     /*@
       loop invariant idx + 1 <= i <= as->count;
-      loop assigns i, as->vmas[idx+1 .. as->count];
+      loop invariant as->count < VMA_CAP;
+      // slots above i hold the original (function-entry) element one lower
+      loop invariant \forall integer k; i < k <= as->count ==>
+          as->vmas[k] == \at(as->vmas[k - 1], Pre);
+      // slots strictly below i are still untouched (post-edit) values
+      loop invariant \forall integer k; 0 <= k < i ==>
+          as->vmas[k] == \at(as->vmas[k], LoopEntry);
+      loop assigns i, as->vmas[idx + 2 .. VMA_CAP - 1];
       loop variant i - (idx + 1);
     */
     for (size_t i = as->count; i > idx + 1; i--)
@@ -122,10 +152,18 @@ mm_status as_split_at(struct addr_space *as, size_t idx, uint64_t split_addr)
 
 /*@
   requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
   requires 0 <= idx <= as->count;
-  requires as->count < VMA_CAP;
-  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  assigns as->vmas[idx .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
   ensures \result == MM_OK ==> as->count == \old(as->count) + 1;
+  ensures \result == MM_OK ==> as->vmas[idx] == v;
+  ensures \result == MM_OK ==>
+    (\forall integer k; 0 <= k < idx ==>
+        as->vmas[k] == \old(as->vmas[k]));
+  ensures \result == MM_OK ==>
+    (\forall integer k; idx < k <= \old(as->count) ==>
+        as->vmas[k] == \old(as->vmas[k - 1]));
 */
 mm_status as_insert_at(struct addr_space *as, size_t idx, struct vma v)
 {
@@ -136,7 +174,14 @@ mm_status as_insert_at(struct addr_space *as, size_t idx, struct vma v)
 
     /*@
       loop invariant idx <= i <= as->count;
-      loop assigns i, as->vmas[idx .. as->count];
+      loop invariant as->count < VMA_CAP;
+      // slots above i hold the original element one position lower
+      loop invariant \forall integer k; i < k <= as->count ==>
+          as->vmas[k] == \at(as->vmas[k - 1], LoopEntry);
+      // slots strictly below i are still untouched originals
+      loop invariant \forall integer k; 0 <= k < i ==>
+          as->vmas[k] == \at(as->vmas[k], LoopEntry);
+      loop assigns i, as->vmas[idx + 1 .. VMA_CAP - 1];
       loop variant i - idx;
     */
     for (size_t i = as->count; i > idx; i--)
@@ -149,9 +194,14 @@ mm_status as_insert_at(struct addr_space *as, size_t idx, struct vma v)
 
 /*@
   requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
   requires 0 <= lo <= hi <= as->count;
-  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  assigns as->vmas[lo .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
   ensures as->count == \old(as->count) - (hi - lo);
+  // elements before lo are untouched
+  ensures \forall integer k; 0 <= k < lo ==>
+      as->vmas[k] == \old(as->vmas[k]);
 */
 void as_remove_range(struct addr_space *as, size_t lo, size_t hi)
 {
@@ -162,7 +212,14 @@ void as_remove_range(struct addr_space *as, size_t lo, size_t hi)
 
     /*@
       loop invariant hi <= i <= as->count;
-      loop assigns i, as->vmas[lo .. as->count - gap - 1];
+      loop invariant as->count <= VMA_CAP;
+      loop invariant lo < hi <= as->count;
+      loop invariant gap == hi - lo;
+      loop invariant 1 <= gap <= lo + gap <= hi;
+      // slots below lo never change
+      loop invariant \forall integer k; 0 <= k < lo ==>
+          as->vmas[k] == \at(as->vmas[k], LoopEntry);
+      loop assigns i, as->vmas[lo .. VMA_CAP - 1];
       loop variant as->count - i;
     */
     for (size_t i = hi; i < as->count; i++)

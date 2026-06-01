@@ -52,6 +52,13 @@ static void test_mergeable(void)
     ASSERT_FALSE(vma_mergeable(&fa, &fb));
     fb.file_offset = PG; fb.fd = 4; /* different fd */
     ASSERT_FALSE(vma_mergeable(&fa, &fb));
+
+    /* distinct logical mappings never merge, even when otherwise compatible */
+    struct vma ma = anon_vma(0, PG, PROT_READ);
+    struct vma mb = anon_vma(PG, 2 * PG, PROT_READ);
+    ASSERT_TRUE(vma_mergeable(&ma, &mb)); /* same map_id (1) */
+    mb.map_id = 2;
+    ASSERT_FALSE(vma_mergeable(&ma, &mb)); /* differing map_id */
 }
 
 static void test_split_insert_remove(void)

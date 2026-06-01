@@ -40,16 +40,23 @@
       acsl_aligned(as->vmas[k].end) &&
       acsl_prot_ok(as->vmas[k].prot);
 
+  // Two individual VMAs a, b are mergeable. Single source of truth for the
+  // merge relation: acsl_mergeable(as, k) is just the pair (k, k+1), and this
+  // mirrors the C runtime predicate vma_mergeable() in vma.c (incl. the map_id
+  // conjunct) - keep the two in lockstep.
+  predicate acsl_vma_pair_mergeable(struct vma *a, struct vma *b) =
+      a->end == b->start &&
+      a->prot == b->prot &&
+      a->flags == b->flags &&
+      a->backing == b->backing &&
+      a->map_id == b->map_id &&
+      (a->backing == VMA_FILE ==>
+          (a->fd == b->fd &&
+           a->file_offset + (a->end - a->start) == b->file_offset));
+
   // Two adjacent VMAs k, k+1 are mergeable (must NOT remain so in canonical form).
   predicate acsl_mergeable(struct addr_space *as, integer k) =
-      as->vmas[k].end == as->vmas[k+1].start &&
-      as->vmas[k].prot == as->vmas[k+1].prot &&
-      as->vmas[k].flags == as->vmas[k+1].flags &&
-      as->vmas[k].backing == as->vmas[k+1].backing &&
-      (as->vmas[k].backing == VMA_FILE ==>
-          (as->vmas[k].fd == as->vmas[k+1].fd &&
-           as->vmas[k].file_offset + (as->vmas[k].end - as->vmas[k].start)
-               == as->vmas[k+1].file_offset));
+      acsl_vma_pair_mergeable(&as->vmas[k], &as->vmas[k+1]);
 
   // The whole address space is well-formed (the headline invariant):
   //  1. count within capacity

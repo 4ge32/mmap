@@ -16,6 +16,14 @@
  * existing VMA. After this, every VMA is either fully inside or fully
  * outside [start, end). Needs up to two free slots.
  */
+/*@
+  requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
+  requires start < end;
+  requires acsl_aligned(start) && acsl_aligned(end);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
+*/
 static mm_status split_boundaries(struct addr_space *as,
                                    uint64_t start, uint64_t end)
 {
@@ -41,6 +49,9 @@ static mm_status split_boundaries(struct addr_space *as,
 
     /* split the VMA straddling `start` (it is the first overlapper, if any) */
     if (split_start) {
+        /*@ assert need >= 1; */
+        /*@ assert as->count < VMA_CAP; */
+        /*@ assert lo < as->count; */
         mm_status st = as_split_at(as, lo, start);
         if (st != MM_OK)
             return st; /* unreachable after preflight; defensive */
@@ -61,7 +72,11 @@ static mm_status split_boundaries(struct addr_space *as,
 
 /*@
   requires \valid(as);
-  assigns *as, *out_addr;
+  requires as_wf(as);
+  requires out_addr == \null || \valid(out_addr);
+  requires \separated(as, out_addr);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count, as->next_map_id, *out_addr;
+  ensures 0 <= as->count <= VMA_CAP;
 */
 mm_status mm_mmap(struct addr_space *as,
                   uint64_t addr, uint64_t length,
@@ -110,6 +125,10 @@ mm_status mm_mmap(struct addr_space *as,
             }
         }
         if (!placed) {
+            /* Re-expose as_wf's per-VMA invariant (acsl_vma_ok) that
+             * as_find_free needs as a precondition. */
+            /*@ assert \forall integer j; 0 <= j < as->count ==>
+                  acsl_vma_ok(as, j); */
             mm_status st = as_find_free(as, len, &base);
             if (st != MM_OK)
                 return st;
@@ -117,6 +136,9 @@ mm_status mm_mmap(struct addr_space *as,
     }
 
     uint64_t end = base + len;
+    /*@ assert len >= PAGE_SIZE; */
+    /*@ assert end == base + len; */
+    /*@ assert base < end; */
 
     /* MAP_FIXED overlay: punch a hole over [base, end) first. */
     if (flags & MAP_FIXED) {
@@ -142,6 +164,8 @@ mm_status mm_mmap(struct addr_space *as,
     v.file_offset = (backing == VMA_FILE) ? offset : 0;
     v.map_id = as->next_map_id++;
 
+    /*@ assert base < end; */
+    /*@ assert 0 <= as->count <= VMA_CAP; */
     size_t lo, hi;
     as_find_range(as, base, end, &lo, &hi);
     mm_status st = as_insert_at(as, lo, v);
@@ -157,7 +181,9 @@ mm_status mm_mmap(struct addr_space *as,
 
 /*@
   requires \valid(as);
-  assigns *as;
+  requires as_wf(as);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
 */
 mm_status mm_mprotect(struct addr_space *as,
                       uint64_t addr, uint64_t length, int prot)
@@ -181,6 +207,12 @@ mm_status mm_mprotect(struct addr_space *as,
         uint64_t cursor = addr;
         size_t lo, hi;
         as_find_range(as, addr, end, &lo, &hi);
+        /*@
+          loop invariant lo <= k <= hi;
+          loop invariant hi <= as->count;
+          loop assigns k, cursor;
+          loop variant hi - k;
+        */
         for (size_t k = lo; k < hi; k++) {
             if (as->vmas[k].start > cursor)
                 return MM_ENOMEM; /* gap before this VMA */
@@ -197,6 +229,12 @@ mm_status mm_mprotect(struct addr_space *as,
 
     size_t lo, hi;
     as_find_range(as, addr, end, &lo, &hi);
+    /*@
+      loop invariant lo <= k <= hi;
+      loop invariant hi <= as->count;
+      loop assigns k, as->vmas[lo .. hi - 1];
+      loop variant hi - k;
+    */
     for (size_t k = lo; k < hi; k++)
         as->vmas[k].prot = prot;
 
@@ -206,7 +244,9 @@ mm_status mm_mprotect(struct addr_space *as,
 
 /*@
   requires \valid(as);
-  assigns *as;
+  requires as_wf(as);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
 */
 mm_status mm_munmap(struct addr_space *as,
                     uint64_t addr, uint64_t length)
