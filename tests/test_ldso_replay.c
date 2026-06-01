@@ -322,6 +322,89 @@ static void test_ldso_multi_object(void)
     ASSERT_WF(st);
 }
 
+/* True iff some surviving VMA still carries `id` (i.e. the object's segments
+ * have NOT all been torn down). */
+static int any_vma_has_id(const struct addr_space *as, uint32_t id)
+{
+    for (size_t k = 0; k < as->count; k++)
+        if (as->vmas[k].map_id == id)
+            return 1;
+    return 0;
+}
+
+/*
+ * M5 Scenario — dlclose-style unload via mm_munmap_object. Load object1 (the
+ * baseline 5-VMA object) and object2 adjacent above it (2 VMAs) for 7 total,
+ * exactly as in Scenario B. Then unload each object as a single logical group
+ * by its map_id, mirroring how a loader's dlclose drops every segment overlay
+ * (text/rodata/data/bss) it mapped for that shared object in one shot.
+ *
+ * Because object2 here is a single MAP_FIXED overlay (one map_id), one
+ * mm_munmap_object call removes its whole footprint and leaves object1 byte-for
+ * byte intact. The op is idempotent: unloading an unused id is a no-op.
+ */
+static void test_ldso_unload_object(void)
+{
+    struct addr_space as; as_init(&as);
+    uint64_t out;
+
+    const uint64_t b1 = 0x40000000ULL;
+    const uint64_t b2 = b1 + 7 * PG;             /* object2 reservation base */
+
+    /* Object1: baseline five-step load -> 5 VMAs sharing object1's id space. */
+    load_object1_at(&as, b1);
+
+    /* Snapshot object1's 5 VMAs to prove they survive object2's teardown. */
+    struct vma obj1[5];
+    for (size_t k = 0; k < 5; k++)
+        obj1[k] = as.vmas[k];
+
+    /* Object2: a single MAP_FIXED file-backed overlay above object1, so its
+     * entire footprint carries ONE fresh map_id. */
+    ASSERT_STATUS(mm_mmap(&as, b2, 2 * PG, PROT_READ | PROT_EXEC,
+                          MAP_FIXED | MAP_PRIVATE, VMA_FILE, FD_OBJ2, 0, &out), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_EQ_U64(as.count, 6);
+
+    /* Capture object2's map_id at its base; it must differ from every object1
+     * VMA's id (distinct per-object identity). */
+    int ib2 = vma_index_at(&as, b2);
+    ASSERT_TRUE(ib2 >= 0);
+    const uint32_t obj2_id = as.vmas[ib2].map_id;
+    for (size_t k = 0; k < 5; k++)
+        ASSERT_TRUE(obj1[k].map_id != obj2_id);
+
+    /* dlclose(object2): one bulk unmap by map_id drops its whole footprint and
+     * restores object1's exact 5-VMA layout. */
+    ASSERT_STATUS(mm_munmap_object(&as, obj2_id), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_EQ_U64(as.count, 5);
+    ASSERT_FALSE(any_vma_has_id(&as, obj2_id));   /* no surviving object2 VMA */
+
+    /* Object1 is untouched: every VMA's bounds/prot/backing/map_id preserved. */
+    for (size_t k = 0; k < 5; k++) {
+        ASSERT_EQ_U64(as.vmas[k].start, obj1[k].start);
+        ASSERT_EQ_U64(as.vmas[k].end, obj1[k].end);
+        ASSERT_EQ_INT(as.vmas[k].prot, obj1[k].prot);
+        ASSERT_EQ_INT(as.vmas[k].backing, obj1[k].backing);
+        ASSERT_EQ_U64(as.vmas[k].map_id, obj1[k].map_id);
+    }
+
+    /* dlclose(object1): each baseline step stamped its own map_id, so removing
+     * one id only drops that step's VMA(s). Unload every object1 id to fully
+     * tear the object down (the RELRO split shares the data overlay's id). */
+    const uint32_t obj1_ids = as.next_map_id;     /* upper bound on ids so far */
+    for (uint32_t id = 0; id < obj1_ids; id++)
+        ASSERT_STATUS(mm_munmap_object(&as, id), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_EQ_U64(as.count, 0);
+
+    /* Idempotent: unloading an unused id on an already-empty space is a no-op. */
+    ASSERT_STATUS(mm_munmap_object(&as, 9999), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_EQ_U64(as.count, 0);
+}
+
 int main(void)
 {
     TEST_SUITE("ld.so mapping-sequence replay");
@@ -331,5 +414,7 @@ int main(void)
              "Alignment-overshoot reservation trims slack to a 4P-aligned base");
     RUN_TEST(test_ldso_multi_object,
              "Multi-object load keeps a per-object map_id boundary (no coalesce)");
+    RUN_TEST(test_ldso_unload_object,
+             "dlclose-style mm_munmap_object unloads one object by map_id (idempotent)");
     return TEST_SUMMARY();
 }
