@@ -152,9 +152,9 @@
     },
     "mm_munmap_object (dlclose unload)": {
       id: "dlclose-unload",
-      span: [0, 10],
+      span: [0, 12],
       steps: [
-        { note: "Two objects loaded: object1 (map_id 0, 5 VMAs) and object2 (map_id 1, 2 VMAs) abut at page 7 -> 7 VMAs.",
+        { note: "Two objects loaded: object1 (map_id 0, its 5 VMAs) and a genuine multi-segment object2 (text r-x + PROT_NONE gap + data rw-, all sharing one map_id 1) starting at page 7 -> 8 VMAs.",
           vmas: [
             { start: 0, end: 2, prot: 5, backing: "file", label: "obj1 text", map_id: 0 },
             { start: 2, end: 3, prot: 0, backing: "anon", label: "obj1 gap", map_id: 0 },
@@ -162,8 +162,9 @@
             { start: 4, end: 5, prot: 3, backing: "file", label: "obj1 data", map_id: 0 },
             { start: 5, end: 7, prot: 3, backing: "anon", label: "obj1 bss", map_id: 0 },
             { start: 7, end: 9, prot: 5, backing: "file", label: "obj2 text", map_id: 1 },
-            { start: 9, end: 10, prot: 3, backing: "file", label: "obj2 data", map_id: 1 }] },
-        { note: "mm_munmap_object(object2): every map_id-1 VMA is removed in one call; object1 stays byte-for-byte intact (5 VMAs).",
+            { start: 9, end: 10, prot: 0, backing: "anon", label: "obj2 gap", map_id: 1 },
+            { start: 10, end: 12, prot: 3, backing: "file", label: "obj2 data", map_id: 1 }] },
+        { note: "mm_munmap_object(object2): ONE call drops every segment sharing object2's map_id (text + gap + data) at once; object1's 5 VMAs stay byte-for-byte intact.",
           vmas: [
             { start: 0, end: 2, prot: 5, backing: "file", label: "obj1 text", map_id: 0 },
             { start: 2, end: 3, prot: 0, backing: "anon", label: "obj1 gap", map_id: 0 },

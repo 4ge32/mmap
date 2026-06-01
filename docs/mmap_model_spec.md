@@ -157,9 +157,19 @@ flowchart TD
 ```vma-viz mremap-resize
 ```
 
+### Object-scoped placement: `mm_mmap_obj`
+`mm_mmap` mints a fresh `map_id` per call. To map a **multi-segment** object
+(text/rodata/data/bss are separate `MAP_FIXED` overlays) as one logical group,
+the loader uses `mm_mmap_obj(..., map_id, out)`: `map_id == 0` mints a fresh
+identity (exactly `mm_mmap`), while a **non-zero `map_id` is stamped verbatim**
+so every segment of one object shares an id. `mm_mmap` is just
+`mm_mmap_obj(..., 0, out)`. The shared id is what makes a single
+`mm_munmap_object` call tear the whole object down.
+
 ### `mm_munmap_object` (dlclose)
-Unload an entire shared object in one call: remove every VMA whose `map_id`
-matches, via a single left-to-right compaction. Idempotent — an unknown
+Unload an entire shared object in one call: remove **every** VMA whose `map_id`
+matches — i.e. all of an object's segment overlays grouped under one id by
+`mm_mmap_obj` — via a single left-to-right compaction. Idempotent: an unknown
 `map_id` is a no-op returning `MM_OK`. Because removal only opens gaps it cannot
 create a newly-mergeable pair, and the post-state guarantees no VMA with that
 `map_id` remains (a proven postcondition). This models `dlclose` tearing down a
