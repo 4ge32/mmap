@@ -294,6 +294,34 @@ sequenceDiagram
   Note over AS: 7 VMAs; m1 and m2 abut at b1+7P but never coalesce
 ```
 
+### dlclose / unload sequence (`mm_munmap_object`)
+
+A real shared object is **several** PT_LOAD segment overlays, not one mapping. To
+model this faithfully the loader joins every segment of one object to a shared
+`map_id` via `mm_mmap_obj(..., id, ...)` instead of letting each overlay mint a
+fresh id. Object2 below is therefore a genuine multi-segment object — an R|X
+text overlay and an R|W data overlay separated by a PROT_NONE alignment gap —
+whose three resulting VMAs all carry the **same** `map_id = m2`.
+
+`dlclose` then tears down that whole object in one call: `mm_munmap_object(m2)`
+removes *every* VMA carrying object2's `map_id` — all of its segments at once —
+leaving object1's 5 VMAs byte-for-byte intact. It is idempotent: unloading a
+`map_id` with no surviving VMAs is a no-op returning `MM_OK`.
+
+```mermaid
+sequenceDiagram
+  participant L as ld.so
+  participant AS as address space
+  Note over AS: 8 VMAs — object1 (map_id m1, 5 VMAs) + object2 (map_id m2: text + gap + data, 3 VMAs sharing m2)
+  L->>AS: mm_munmap_object(m2)  (dlclose object2)
+  AS-->>AS: drop every VMA with map_id == m2 — all of object2's segments in one call
+  Note over AS: 5 VMAs — object1 intact, as_wf holds
+  L->>AS: mm_munmap_object(m2) again
+  Note over AS: idempotent — no VMA has m2, MM_OK, unchanged
+```
+
+> Step through the unload interactively in the spec's `dlclose-unload` widget.
+
 ---
 
 ## Note for the replay test

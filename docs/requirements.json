@@ -154,6 +154,124 @@
       "tests": [
         "Multi-object load keeps a per-object map_id boundary (no coalesce)"
       ]
+    },
+    {
+      "id": "REQ-LDSO-UNLOAD",
+      "category": "LDSO",
+      "title": "dlclose-style teardown: mm_munmap_object removes every segment VMA of one multi-segment object (segments grouped under a shared map_id via mm_mmap_obj) by map_id in one call, leaves other objects intact, and is idempotent on unused ids",
+      "source": "docs/ldso_sequence.md#scenario-b-multi-object-load-two-shared-objects",
+      "tests": [
+        "dlclose-style mm_munmap_object unloads one object by map_id (idempotent)"
+      ]
+    },
+    {
+      "id": "REQ-OP-NOREPLACE",
+      "category": "OP",
+      "title": "MAP_FIXED_NOREPLACE places like MAP_FIXED but refuses (MM_EEXIST) to overlay an occupied range, mutating nothing; maps a free range exactly at addr",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "MAP_FIXED_NOREPLACE refuses overlap (EEXIST) but maps a free range"
+      ]
+    },
+    {
+      "id": "REQ-OP-MREMAP-SHRINK",
+      "category": "OP",
+      "title": "mremap shrink unmaps the tail and keeps the base address",
+      "source": "docs/mmap_model_spec.md#mm_mremap",
+      "tests": [
+        "mremap shrink unmaps the tail and keeps the base"
+      ]
+    },
+    {
+      "id": "REQ-OP-MREMAP-GROW",
+      "category": "OP",
+      "title": "mremap grows in place into a free tail range, re-merging into one VMA (identity preserved); blocked grow without MREMAP_MAYMOVE returns ENOMEM with no mutation",
+      "source": "docs/mmap_model_spec.md#mm_mremap",
+      "tests": [
+        "mremap grows in place into free space, re-merging to one VMA",
+        "mremap grow with no room and no MAYMOVE returns ENOMEM, no mutation"
+      ]
+    },
+    {
+      "id": "REQ-OP-MREMAP-MOVE",
+      "category": "OP",
+      "title": "mremap grow with MREMAP_MAYMOVE relocates the mapping to a fresh region and frees the old range",
+      "source": "docs/mmap_model_spec.md#mm_mremap",
+      "tests": [
+        "mremap grow with MREMAP_MAYMOVE relocates and frees the old range"
+      ]
+    },
+    {
+      "id": "REQ-OP-MREMAP-FILE",
+      "category": "OP",
+      "title": "mremap grow-in-place of a file-backed VMA preserves its file_offset and stays a single contiguous VMA",
+      "source": "docs/mmap_model_spec.md#mm_mremap",
+      "tests": [
+        "mremap grow-in-place preserves a file-backed VMA's offset & contiguity"
+      ]
+    },
+    {
+      "id": "REQ-OP-MREMAP-WHOLE",
+      "category": "OP",
+      "title": "mremap requires the source to be exactly one whole VMA (sub-range -> MM_EINVAL); new_len == old_len is a no-op returning the original base",
+      "source": "docs/mmap_model_spec.md#mm_mremap",
+      "tests": [
+        "mremap requires a whole VMA (EINVAL on sub-range) and no-ops equal sizes"
+      ]
+    },
+    {
+      "id": "REQ-OP-MUNMAP-SPLIT",
+      "category": "OP",
+      "title": "munmap of a middle page splits a single VMA into a head and a tail VMA around the freed hole",
+      "source": "docs/mmap_model_spec.md#mm_munmap",
+      "tests": [
+        "munmap of a middle page splits a single VMA into head and tail"
+      ]
+    },
+    {
+      "id": "REQ-OP-MPROTECT-REMERGE",
+      "category": "OP",
+      "title": "mprotect that differs an inner sub-range then re-equalizes the whole range re-merges the splits into a single VMA",
+      "source": "docs/mmap_model_spec.md#mm_mprotect",
+      "tests": [
+        "mprotect differing then re-equalizing prots re-merges to one VMA"
+      ]
+    },
+    {
+      "id": "REQ-OP-FINDFREE-ENOMEM",
+      "category": "OP",
+      "title": "Non-FIXED placement returns MM_ENOMEM when no free hole is large enough for the request",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "Non-FIXED mmap returns ENOMEM when no hole is large enough"
+      ]
+    },
+    {
+      "id": "REQ-OP-ASMAX-BOUNDARY",
+      "category": "OP",
+      "title": "MAP_FIXED whose range ends exactly at AS_MAX succeeds; a range exceeding AS_MAX returns MM_ENOMEM",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "MAP_FIXED at the AS_MAX boundary succeeds; beyond it returns ENOMEM"
+      ]
+    },
+    {
+      "id": "REQ-OP-LEN-ROUNDUP",
+      "category": "OP",
+      "title": "A sub-page mmap length (e.g. 1 byte) rounds up so the VMA spans exactly one full page",
+      "source": "docs/mmap_model_spec.md#mm_mmap",
+      "tests": [
+        "Sub-page mmap length rounds up to a single full page"
+      ]
+    },
+    {
+      "id": "REQ-OP-FILE-CONTIGUITY",
+      "category": "OP",
+      "title": "File-backed VMAs carved from one mapping split (mprotect) and re-merge once re-equalized, confirming file_offset continuity across the boundary",
+      "source": "docs/mmap_model_spec.md#mm_mprotect",
+      "tests": [
+        "File-backed VMAs split then re-merge with continuous file_offset"
+      ]
     }
   ]
 }

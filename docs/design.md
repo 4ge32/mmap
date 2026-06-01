@@ -232,3 +232,15 @@ overflow guards before every page computation). Naming: `snake_case` with
   `ASSERT_WF`.
 - **M3** ld.so replay + conformance. ✅
 - **M4** polish/docs, CI-ready `verify.sh`. ✅
+- **M5** full mmap-family surface + thorough coverage. ✅ Added
+  `MAP_FIXED_NOREPLACE` (activates `MM_EEXIST`), `mm_mremap`
+  (shrink / grow-in-place / `MREMAP_MAYMOVE` move), and `mm_munmap_object`
+  (dlclose-style bulk unmap by `map_id`, with a proven *no surviving map_id*
+  postcondition). Coverage expanded to 29 tests / 672 checks across the suites
+  (incl. the new ops and the previously-thin edges: middle-page munmap split,
+  mprotect re-merge, `as_find_free` exhaustion, AS_MAX boundary, sub-page
+  round-up, file contiguity). WP stays green: **`make proof
+  PROOF_REQUIRE_WP=1` discharges 842/842** at the same bar as the original ops
+  (count clause + all RTE; the geometric `ensures as_wf` remains the M2 open
+  item). Each new op is animated in the inline visualizer (see
+  `docs/mmap_model_spec.md`).
