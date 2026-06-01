@@ -34,6 +34,13 @@
     }
     return p & 2 ? "#fbcfe8" : "#ddd6fe";     // anon rw / other: pink / violet
   }
+  // Per-object tint. When a VMA carries a `map_id`, colour by object identity
+  // so a multi-object layout (e.g. dlclose) reads as visually distinct groups.
+  var OBJ_FILLS = ["#c7d2fe", "#fbcfe8", "#bbf7d0", "#fed7aa", "#a5f3fc"];
+  function fillFor(v) {
+    if (v.map_id != null) return OBJ_FILLS[v.map_id % OBJ_FILLS.length];
+    return protFill(v.prot, v.backing);
+  }
 
   // ---- scenarios (pages) ------------------------------------------------
   // ld.so synthetic example mirrors docs/ldso_sequence.md (7-page image).
@@ -108,6 +115,62 @@
             { start: 0, end: 2, prot: 1, backing: "anon", label: "r--" },
             { start: 4, end: 6, prot: 1, backing: "anon", label: "r--" }] }
       ]
+    },
+    "MAP_FIXED_NOREPLACE (refuse overlap)": {
+      id: "map-fixed-noreplace",
+      span: [0, 8],
+      steps: [
+        { note: "Start: an existing r-- mapping occupies [2,4).",
+          vmas: [{ start: 2, end: 4, prot: 1, backing: "anon", label: "mapped r--" }] },
+        { note: "REJECTED: MAP_FIXED_NOREPLACE at [3,6) overlaps [2,4) -> MM_EEXIST, nothing changes.",
+          vmas: [{ start: 2, end: 4, prot: 1, backing: "anon", label: "mapped r--" }] },
+        { note: "MAP_FIXED_NOREPLACE at [6,8) is free -> mapped at the exact addr (no overlay, no collision).",
+          vmas: [
+            { start: 2, end: 4, prot: 1, backing: "anon", label: "mapped r--" },
+            { start: 6, end: 8, prot: 1, backing: "anon", label: "new r--" }] }
+      ]
+    },
+    "mremap (shrink / grow-in-place / move)": {
+      id: "mremap-resize",
+      span: [0, 13],
+      steps: [
+        { note: "Start: one 4-page rw- mapping at [0,4).",
+          vmas: [{ start: 0, end: 4, prot: 3, backing: "anon", label: "rw-" }] },
+        { note: "SHRINK 4P -> 2P: the tail [2,4) is unmapped; the base stays put.",
+          vmas: [{ start: 0, end: 2, prot: 3, backing: "anon", label: "rw-" }] },
+        { note: "GROW-IN-PLACE 2P -> 4P: [2,4) is free, so it extends and re-merges into one VMA (same map_id).",
+          vmas: [{ start: 0, end: 4, prot: 3, backing: "anon", label: "rw-" }] },
+        { note: "Setup for MOVE: an occupant at [4,5) now abuts the tail, so a grow cannot extend in place.",
+          vmas: [
+            { start: 0, end: 4, prot: 3, backing: "anon", label: "rw- (to move)" },
+            { start: 4, end: 5, prot: 1, backing: "anon", label: "blocker" }] },
+        { note: "GROW-WITH-MOVE 4P -> 8P (MREMAP_MAYMOVE): first-fit relocates it to [5,13]; the old [0,4) is freed.",
+          vmas: [
+            { start: 4, end: 5, prot: 1, backing: "anon", label: "blocker" },
+            { start: 5, end: 13, prot: 3, backing: "anon", label: "rw- (moved)" }] }
+      ]
+    },
+    "mm_munmap_object (dlclose unload)": {
+      id: "dlclose-unload",
+      span: [0, 10],
+      steps: [
+        { note: "Two objects loaded: object1 (map_id 0, 5 VMAs) and object2 (map_id 1, 2 VMAs) abut at page 7 -> 7 VMAs.",
+          vmas: [
+            { start: 0, end: 2, prot: 5, backing: "file", label: "obj1 text", map_id: 0 },
+            { start: 2, end: 3, prot: 0, backing: "anon", label: "obj1 gap", map_id: 0 },
+            { start: 3, end: 4, prot: 1, backing: "file", label: "obj1 relro", map_id: 0 },
+            { start: 4, end: 5, prot: 3, backing: "file", label: "obj1 data", map_id: 0 },
+            { start: 5, end: 7, prot: 3, backing: "anon", label: "obj1 bss", map_id: 0 },
+            { start: 7, end: 9, prot: 5, backing: "file", label: "obj2 text", map_id: 1 },
+            { start: 9, end: 10, prot: 3, backing: "file", label: "obj2 data", map_id: 1 }] },
+        { note: "mm_munmap_object(object2): every map_id-1 VMA is removed in one call; object1 stays byte-for-byte intact (5 VMAs).",
+          vmas: [
+            { start: 0, end: 2, prot: 5, backing: "file", label: "obj1 text", map_id: 0 },
+            { start: 2, end: 3, prot: 0, backing: "anon", label: "obj1 gap", map_id: 0 },
+            { start: 3, end: 4, prot: 1, backing: "file", label: "obj1 relro", map_id: 0 },
+            { start: 4, end: 5, prot: 3, backing: "file", label: "obj1 data", map_id: 0 },
+            { start: 5, end: 7, prot: 3, backing: "anon", label: "obj1 bss", map_id: 0 }] }
+      ]
     }
   };
 
@@ -147,7 +210,7 @@
       var w = (v.end - v.start) * pxPerPage;
       var g = el("g", {});
       g.appendChild(el("rect", { x: x + 1, y: padTop + 1, width: Math.max(w - 2, 1),
-        height: trackH - 2, fill: protFill(v.prot, v.backing), stroke: "#374151", rx: 3 }));
+        height: trackH - 2, fill: fillFor(v), stroke: "#374151", rx: 3 }));
       var cx = x + w / 2;
       g.appendChild(el("text", { x: cx, y: padTop + 24, "text-anchor": "middle",
         "font-size": 12, "font-weight": 600, fill: "#111827" }, v.label));
@@ -164,7 +227,8 @@
       ["text r-x (file)", "#bfdbfe"],
       ["data rw- (file)", "#fde68a"],
       ["relro r-- (file)", "#c7f9cc"],
-      ["anon rw-", "#fbcfe8"]
+      ["anon rw-", "#fbcfe8"],
+      ["object group (by map_id)", "#c7d2fe"]
     ];
     var box = document.createElement("div");
     box.className = "vmaviz-legend";

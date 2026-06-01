@@ -61,11 +61,18 @@ flowchart LR
   A["validate args<br/>(len, prot, flags, overflow)"] --> B["split at start &amp; end<br/>(as_split_at)"]
   B --> C{operation}
   C -->|mmap MAP_FIXED| D["remove covered<br/>+ insert new VMA"]
+  C -->|"mmap MAP_FIXED_NOREPLACE"| D2{"overlap?"}
   C -->|mprotect| E["set prot on<br/>covered VMAs"]
   C -->|munmap| F["remove covered<br/>VMAs"]
+  C -->|"munmap_object (dlclose)"| F2["remove every VMA<br/>with that map_id"]
+  C -->|mremap| M["resize one whole VMA<br/>(see mremap flow)"]
+  D2 -->|yes| X["MM_EEXIST<br/>(no mutation)"]
+  D2 -->|no| D
   D --> G["as_canonicalize<br/>(merge neighbours)"]
   E --> G
   F --> G
+  F2 --> G
+  M --> G
   G --> H["as_wf holds"]
 ```
 
@@ -132,6 +139,18 @@ guarded. Cases:
 - **Grow, no room, no `MREMAP_MAYMOVE`**: `MM_ENOMEM`, no mutation.
 
 `MREMAP_FIXED` (caller-chosen destination) is reserved but not implemented.
+
+```mermaid
+flowchart TD
+  A["mm_mremap<br/>(source = exactly one whole VMA)"] --> B{new_len vs old_len}
+  B -->|equal| C["no-op<br/>return old_addr"]
+  B -->|shrink| D["munmap the tail<br/>base unchanged"]
+  B -->|grow| E{tail free &amp; in-bounds?}
+  E -->|yes| F["extend in place<br/>(same map_id) → re-merge to one VMA"]
+  E -->|no| G{MREMAP_MAYMOVE?}
+  G -->|yes| H["as_find_free new base<br/>recreate (same map_id) → munmap old"]
+  G -->|no| I["MM_ENOMEM<br/>(no mutation)"]
+```
 
 ```vma-viz mremap-resize
 ```

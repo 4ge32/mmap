@@ -294,6 +294,27 @@ sequenceDiagram
   Note over AS: 7 VMAs; m1 and m2 abut at b1+7P but never coalesce
 ```
 
+### dlclose / unload sequence (`mm_munmap_object`)
+
+`dlclose` tears down a whole shared object in one call: `mm_munmap_object(m2)`
+removes every VMA carrying object2's `map_id`, leaving object1 byte-for-byte
+intact. It is idempotent — unloading an `map_id` with no surviving VMAs is a
+no-op returning `MM_OK`.
+
+```mermaid
+sequenceDiagram
+  participant L as ld.so
+  participant AS as address space
+  Note over AS: 7 VMAs — object1 (map_id m1, 5 VMAs) + object2 (map_id m2, 2 VMAs)
+  L->>AS: mm_munmap_object(m2)  (dlclose object2)
+  AS-->>AS: drop every VMA with map_id == m2 (single compaction)
+  Note over AS: 5 VMAs — object1 intact, as_wf holds
+  L->>AS: mm_munmap_object(m2) again
+  Note over AS: idempotent — no VMA has m2, MM_OK, unchanged
+```
+
+> Step through the unload interactively in the spec's `dlclose-unload` widget.
+
 ---
 
 ## Note for the replay test
