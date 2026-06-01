@@ -257,6 +257,159 @@ mm_status mm_mprotect(struct addr_space *as,
     return MM_OK;
 }
 
+/*
+ * Insert a fully-specified VMA (including a caller-chosen map_id) into a free
+ * range [v.start, v.end), then re-merge. Unlike mm_mmap this does NOT stamp a
+ * fresh map_id, so it can place the moved/extended half of an existing mapping
+ * while preserving the mapping's identity. The caller guarantees the range is
+ * currently free (used only on ranges just verified empty by as_find_range).
+ */
+/*@
+  requires \valid(as);
+  requires 0 <= as->count <= VMA_CAP;
+  requires v.start < v.end;
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
+*/
+static mm_status insert_vma_keep_id(struct addr_space *as, struct vma v)
+{
+    if (as->count >= VMA_CAP)
+        return MM_ENOMEM;
+
+    size_t lo, hi;
+    as_find_range(as, v.start, v.end, &lo, &hi);
+    mm_status st = as_insert_at(as, lo, v);
+    if (st != MM_OK)
+        return st;
+
+    as_canonicalize(as);
+    return MM_OK;
+}
+
+/*@
+  requires \valid(as);
+  requires as_wf(as);
+  requires out_addr == \null || \valid(out_addr);
+  requires \separated(as, out_addr);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count, *out_addr;
+  ensures 0 <= as->count <= VMA_CAP;
+*/
+mm_status mm_mremap(struct addr_space *as,
+                    uint64_t old_addr, uint64_t old_len,
+                    uint64_t new_len, int flags,
+                    uint64_t *out_addr)
+{
+    if (old_len == 0 || new_len == 0)
+        return MM_EINVAL;
+    if (!is_page_aligned(old_addr))
+        return MM_EINVAL;
+    if ((flags & ~MREMAP_MAYMOVE) != 0)
+        return MM_EINVAL;
+    if (round_up_overflows(old_len) || round_up_overflows(new_len))
+        return MM_EINVAL;
+
+    uint64_t olen = round_up_page(old_len);
+    uint64_t nlen = round_up_page(new_len);
+    if (add_overflows(old_addr, olen))
+        return MM_EINVAL;
+    uint64_t old_end = old_addr + olen;
+
+    /* Locate the source: exactly one VMA spanning precisely the old range. */
+    size_t lo, hi;
+    as_find_range(as, old_addr, old_end, &lo, &hi);
+    if (!(hi == lo + 1))
+        return MM_EINVAL;
+    /*@ assert lo < as->count; */
+    if (as->vmas[lo].start != old_addr || as->vmas[lo].end != old_end)
+        return MM_EINVAL;
+
+    /* Capture the source mapping's identity/properties. */
+    struct vma src = as->vmas[lo];
+
+    /* Case 1: no change in size. */
+    if (nlen == olen) {
+        if (out_addr)
+            *out_addr = old_addr;
+        return MM_OK;
+    }
+
+    /* Case 2: shrink - unmap the tail, base stays put. */
+    if (nlen < olen) {
+        /* old_addr + nlen < old_end <= AS_MAX, so no overflow. */
+        mm_status st = mm_munmap(as, old_addr + nlen, olen - nlen);
+        if (st != MM_OK)
+            return st;
+        if (out_addr)
+            *out_addr = old_addr;
+        return MM_OK;
+    }
+
+    /* Case 3: grow (nlen > olen). */
+    if (add_overflows(old_addr, nlen))
+        return MM_ENOMEM;
+    uint64_t new_end = old_addr + nlen;
+
+    /* 3a: in-place extension if the gap [old_end, new_end) is free and in
+     * bounds. The extension carries the SAME map_id/prot/flags/backing/fd, so
+     * canonicalize re-merges it into the source VMA. */
+    if (new_end <= as->as_max) {
+        size_t glo, ghi;
+        as_find_range(as, old_end, new_end, &glo, &ghi);
+        if (glo == ghi) {
+            struct vma ext = src;
+            ext.start = old_end;
+            ext.end = new_end;
+            if (src.backing == VMA_FILE)
+                ext.file_offset = src.file_offset + (old_end - src.start);
+            else
+                ext.file_offset = 0;
+            /*@ assert ext.start < ext.end; */
+            mm_status st = insert_vma_keep_id(as, ext);
+            if (st != MM_OK)
+                return st;
+            if (out_addr)
+                *out_addr = old_addr;
+            return MM_OK;
+        }
+    }
+
+    /* 3b: relocate if MREMAP_MAYMOVE is set. */
+    if (flags & MREMAP_MAYMOVE) {
+        /* Re-expose as_wf's per-VMA invariant for as_find_free. */
+        /*@ assert \forall integer j; 0 <= j < as->count ==>
+              acsl_vma_ok(as, j); */
+        uint64_t new_base;
+        mm_status st = as_find_free(as, nlen, &new_base);
+        if (st != MM_OK)
+            return st;
+        /*@ assert new_base + nlen <= as->as_max; */
+
+        /* Unmap the old range FIRST, while as_wf still holds (mm_munmap
+         * requires it). The moved copy is inserted afterward; doing it in this
+         * order keeps every as_wf-requiring call on a well-formed input. */
+        st = mm_munmap(as, old_addr, olen);
+        if (st != MM_OK)
+            return st;
+
+        struct vma moved = src;
+        moved.start = new_base;
+        moved.end = new_base + nlen;
+        moved.file_offset = (src.backing == VMA_FILE) ? src.file_offset : 0;
+        /*@ assert moved.start < moved.end; */
+
+        st = insert_vma_keep_id(as, moved);
+        if (st != MM_OK)
+            return st;
+
+        if (out_addr)
+            *out_addr = new_base;
+        return MM_OK;
+    }
+
+    /* 3c: grow, no room in place, no MREMAP_MAYMOVE. */
+    return MM_ENOMEM;
+}
+
 /*@
   requires \valid(as);
   requires as_wf(as);

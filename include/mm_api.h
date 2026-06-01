@@ -45,4 +45,32 @@ mm_status mm_mprotect(struct addr_space *as,
 mm_status mm_munmap(struct addr_space *as,
                     uint64_t addr, uint64_t length);
 
+/*
+ * Resize the mapping at [old_addr, old_addr+old_len) to new_len.
+ *
+ * This is a deliberately simplified model of Linux mremap: the source must be
+ * EXACTLY ONE existing VMA spanning precisely [old_addr, old_addr+old_len)
+ * (mremap operates on a whole mapping; a partial/multi-VMA span is MM_EINVAL).
+ *
+ * old_addr : page-aligned start of the existing mapping.
+ * old_len  : >0; rounded up to a page multiple; must match the source span.
+ * new_len  : >0; rounded up to a page multiple; the requested new size.
+ * flags    : subset of MREMAP_MAYMOVE (unknown bits => MM_EINVAL). MREMAP_FIXED
+ *            is reserved and not implemented.
+ * out_addr : on MM_OK, receives the (possibly new) start address.
+ *
+ * Behavior:
+ *  - new_len == old_len: no-op; *out_addr = old_addr.
+ *  - shrink: unmaps the tail; base stays old_addr.
+ *  - grow in place: if the extension range is free and in bounds, extend; the
+ *    new VMA carries the source's prot/flags/backing/fd/map_id and re-merges.
+ *  - grow with MREMAP_MAYMOVE: relocate the mapping (same prot/flags/backing/
+ *    fd/map_id) to a freshly placed region and unmap the old range.
+ *  - grow with no room and no MREMAP_MAYMOVE: MM_ENOMEM, no mutation.
+ */
+mm_status mm_mremap(struct addr_space *as,
+                    uint64_t old_addr, uint64_t old_len,
+                    uint64_t new_len, int flags,
+                    uint64_t *out_addr);
+
 #endif /* MM_API_H */

@@ -37,6 +37,12 @@
 #define MAP_ALL          (MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | \
                           MAP_FIXED_NOREPLACE)
 
+/* mremap flags. Separate namespace from MAP_* (mirror of MREMAP_*).
+ * MREMAP_FIXED is reserved/unused (we do not implement explicit relocation). */
+#define MREMAP_MAYMOVE 0x1
+#define MREMAP_FIXED   0x2  /* reserved, unused yet */
+#define MREMAP_ALL     (MREMAP_MAYMOVE)
+
 /* Address-space bounds: x86-64 canonical lower-half user space. */
 #define AS_MIN ((uint64_t)0)
 #define AS_MAX ((uint64_t)0x0000800000000000ULL)
