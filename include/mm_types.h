@@ -26,14 +26,16 @@
 #define PROT_EXEC  0x4
 #define PROT_ALL   (PROT_READ | PROT_WRITE | PROT_EXEC)
 
-/* Mapping flags subset (mirror of MAP_*). MAP_FIXED is an operation
- * modifier, not a stored property. */
+/* Mapping flags subset (mirror of MAP_*). MAP_FIXED and MAP_FIXED_NOREPLACE are
+ * operation modifiers, not stored properties. */
 #define MAP_PRIVATE   0x01
 #define MAP_ANONYMOUS 0x02
 #define MAP_FIXED     0x04
+#define MAP_FIXED_NOREPLACE 0x08
 /* Persistent flags retained on a stored VMA. */
 #define MAP_PERSIST_MASK (MAP_PRIVATE | MAP_ANONYMOUS)
-#define MAP_ALL          (MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED)
+#define MAP_ALL          (MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | \
+                          MAP_FIXED_NOREPLACE)
 
 /* Address-space bounds: x86-64 canonical lower-half user space. */
 #define AS_MIN ((uint64_t)0)

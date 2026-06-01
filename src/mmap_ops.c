@@ -102,8 +102,12 @@ mm_status mm_mmap(struct addr_space *as,
             return MM_EINVAL;
     }
 
+    /* MAP_FIXED_NOREPLACE places exactly like MAP_FIXED but never overlays an
+     * existing mapping; the collision check happens after placement below. */
+    bool fixed = (flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) != 0;
+
     uint64_t base;
-    if (flags & MAP_FIXED) {
+    if (fixed) {
         if (!is_page_aligned(addr))
             return MM_EINVAL;
         if (add_overflows(addr, len))
@@ -140,8 +144,19 @@ mm_status mm_mmap(struct addr_space *as,
     /*@ assert end == base + len; */
     /*@ assert base < end; */
 
-    /* MAP_FIXED overlay: punch a hole over [base, end) first. */
-    if (flags & MAP_FIXED) {
+    /* MAP_FIXED_NOREPLACE: refuse rather than overlay if anything is already
+     * mapped in [base, end). This is a no-mutation early return. */
+    if (flags & MAP_FIXED_NOREPLACE) {
+        size_t lo, hi;
+        as_find_range(as, base, end, &lo, &hi);
+        if (lo < hi)
+            return MM_EEXIST;
+    }
+
+    /* MAP_FIXED overlay: punch a hole over [base, end) first. (For
+     * MAP_FIXED_NOREPLACE the range is now known empty, so the hole-punch is a
+     * no-op, but running it uniformly keeps the placement path simple.) */
+    if (fixed) {
         mm_status st = split_boundaries(as, base, end);
         if (st != MM_OK)
             return st;
