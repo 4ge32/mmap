@@ -442,3 +442,46 @@ mm_status mm_munmap(struct addr_space *as,
     as_canonicalize(as); /* removal cannot create new mergeables, but cheap */
     return MM_OK;
 }
+
+/*
+ * Unmap an entire shared object: drop every VMA whose map_id matches, in a
+ * single left-to-right compaction pass (write-cursor `w` copies kept elements
+ * down, exactly like as_canonicalize). Removal only deletes elements and
+ * preserves the relative order of the survivors, so the result stays sorted
+ * and disjoint. Unlike the other ops we deliberately do NOT run an
+ * as_canonicalize pass afterward: dropping VMAs can only open gaps between the
+ * survivors, never create a newly-mergeable adjacent pair (any pair that was
+ * non-mergeable before is still non-mergeable, and any pair separated by a now
+ * removed VMA had distinct map_ids and stays disjoint). Canonicalizing would
+ * also re-frame the array under its own (weaker) contract, defeating the
+ * no-matching-map_id postcondition that is the point of this operation.
+ */
+/*@
+  requires \valid(as);
+  requires as_wf(as);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count;
+  ensures 0 <= as->count <= VMA_CAP;
+  ensures \forall integer k; 0 <= k < as->count ==> as->vmas[k].map_id != map_id;
+*/
+mm_status mm_munmap_object(struct addr_space *as, uint32_t map_id)
+{
+    size_t w = 0; /* write cursor: vmas[0..w) is the compacted survivor prefix */
+
+    /*@
+      loop invariant 0 <= w <= i <= as->count;
+      loop invariant as->count <= VMA_CAP;
+      loop invariant \forall integer j; 0 <= j < w ==>
+          as->vmas[j].map_id != map_id;
+      loop assigns i, w, as->vmas[0 .. VMA_CAP - 1];
+      loop variant as->count - i;
+    */
+    for (size_t i = 0; i < as->count; i++) {
+        if (as->vmas[i].map_id != map_id) {
+            as->vmas[w] = as->vmas[i]; /* keep this VMA, copy it down */
+            w++;
+        }
+    }
+
+    as->count = w;
+    return MM_OK;
+}

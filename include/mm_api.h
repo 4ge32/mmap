@@ -73,4 +73,15 @@ mm_status mm_mremap(struct addr_space *as,
                     uint64_t new_len, int flags,
                     uint64_t *out_addr);
 
+/*
+ * Unmap an entire shared object: remove every VMA whose .map_id equals the
+ * given map_id, in one call. This models a dynamic loader's dlclose, which
+ * tears down all the segments (text/rodata/data/bss overlays) that were mapped
+ * for one shared object under a single logical mapping group.
+ *
+ * Idempotent: a map_id that matches no VMA is a no-op returning MM_OK. On
+ * return no surviving VMA carries the removed map_id.
+ */
+mm_status mm_munmap_object(struct addr_space *as, uint32_t map_id);
+
 #endif /* MM_API_H */
