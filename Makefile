@@ -77,6 +77,11 @@ asan-test-ldso-replay:  clean test-ldso-replay
 FRAMAC_FLAGS := -machdep gcc_x86_64 -cpp-extra-args="-Iinclude -DFRAMA_C" \
                 -no-warn-unaligned-pointer
 FRAMAC_SRC   := $(CORE_SRC) proofs/wp_entry.c
+# Per-goal prover timeout (s) and parallelism. Overridable so a slow/contended
+# CI runner without a warm prover cache can be given more headroom than the
+# local default (the heaviest goal needs ~2 min of Qed even when cached).
+WP_TIMEOUT   ?= 120
+WP_PAR       ?= 4
 
 # Full WP proof tier. Runs only when frama-c AND its WP plugin are present
 # (the Debian frama-c-base package ships the kernel + RTE but not WP; WP comes
@@ -96,7 +101,7 @@ proof:
 	    echo "== running Frama-C/WP proofs =="; \
 	    frama-c $(FRAMAC_FLAGS) -rte -wp -wp-rte \
 	        -wp-session proofs/wp_session \
-	        -wp-prover script,z3,alt-ergo -wp-timeout 60 -wp-par 4 $(FRAMAC_SRC); \
+	        -wp-prover script,z3,alt-ergo -wp-timeout $(WP_TIMEOUT) -wp-par $(WP_PAR) $(FRAMAC_SRC); \
 	elif [ "$${PROOF_REQUIRE_WP:-0}" = "1" ]; then \
 	    echo "[FAIL] PROOF_REQUIRE_WP=1 but the WP plugin is not installed"; \
 	    echo "       (frama-c is present but 'frama-c -wp-help' failed)"; exit 1; \

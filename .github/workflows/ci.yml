@@ -94,6 +94,9 @@ jobs:
   proofs:
     name: Frama-C/WP proofs (informational)
     runs-on: ubuntu-latest
+    # The WP tier re-proves from scratch (no warm prover cache on a fresh
+    # checkout) on a shared runner; give it generous wall-clock headroom.
+    timeout-minutes: 45
     # Non-blocking: the proof tier is additive. But the job now runs the REAL
     # WP tier — PROOF_REQUIRE_WP=1 makes a missing WP plugin a hard failure, so
     # a green check means WP actually ran (no more silent parse-fallback hiding
@@ -139,7 +142,9 @@ jobs:
         id: wp
         run: |
           set -o pipefail
-          opam exec -- make proof PROOF_REQUIRE_WP=1 2>&1 | tee wp-output.txt
+          # Larger per-goal timeout than the local default: the runner is slower
+          # and has no warm prover cache, so the heaviest goals need headroom.
+          opam exec -- make proof PROOF_REQUIRE_WP=1 WP_TIMEOUT=240 2>&1 | tee wp-output.txt
         # No step-level continue-on-error: a missing WP or an undischarged goal
         # makes this step (and the job) visibly red, so a green "proofs" check
         # genuinely means WP ran and proved everything. The job-level
