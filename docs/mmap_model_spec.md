@@ -25,8 +25,12 @@ After every public operation the following all hold:
    `prot & ~PROT_ALL == 0`.
 3. **Sorted & disjoint**: `vmas[k].end <= vmas[k+1].start` for all `k`.
 4. **Canonical**: no adjacent pair `(k, k+1)` is *mergeable* (same prot,
-   flags, backing, and — for files — same fd with contiguous offset). Such
-   pairs are always merged into one VMA.
+   flags, backing, same `map_id`, and — for files — same fd with contiguous
+   offset). Such pairs are always merged into one VMA. The `map_id` clause
+   keeps distinct logical mappings (e.g. different ld.so objects) from
+   coalescing even when otherwise compatible; the two halves of one mapping
+   share a `map_id` and still re-merge once their protections line up again
+   (see `docs/ldso_sequence.md` §"multi-object load").
 
 The runtime mirror is `as_check_wf()`; the ACSL predicate is `as_wf` in
 `include/mm_acsl.h`. They must stay in lockstep.
