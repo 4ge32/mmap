@@ -140,9 +140,11 @@ jobs:
         run: |
           set -o pipefail
           opam exec -- make proof PROOF_REQUIRE_WP=1 2>&1 | tee wp-output.txt
-        # Don't let the (expected, while M2 is in progress) non-zero exit abort
-        # the reporting steps below; the job is already continue-on-error.
-        continue-on-error: true
+        # No step-level continue-on-error: a missing WP or an undischarged goal
+        # makes this step (and the job) visibly red, so a green "proofs" check
+        # genuinely means WP ran and proved everything. The job-level
+        # continue-on-error still keeps it from gating the merge, and the
+        # reporting steps below run regardless via `if: always()`.
 
       - name: Summarize WP goals
         if: always()
