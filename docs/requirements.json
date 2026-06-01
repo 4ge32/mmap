@@ -136,6 +136,24 @@
       "tests": [
         "Full ld.so mapping sequence preserves as_wf at each step"
       ]
+    },
+    {
+      "id": "REQ-LDSO-5",
+      "category": "LDSO",
+      "title": "Alignment-overshoot reservation: oversize PROT_NONE reservation, head/tail slack munmap trim to a p_align-aligned base, then baseline overlays",
+      "source": "docs/ldso_sequence.md#scenario-a-alignment-overshoot-reservation-slack-trim",
+      "tests": [
+        "Alignment-overshoot reservation trims slack to a 4P-aligned base"
+      ]
+    },
+    {
+      "id": "REQ-LDSO-6",
+      "category": "LDSO",
+      "title": "Multi-object load: each object carries a distinct map_id; adjacent VMAs from different objects never coalesce, even when prot/flags/backing match",
+      "source": "docs/ldso_sequence.md#scenario-b-multi-object-load-two-shared-objects",
+      "tests": [
+        "Multi-object load keeps a per-object map_id boundary (no coalesce)"
+      ]
     }
   ]
 }

@@ -198,8 +198,14 @@ overflow guards before every page computation). Naming: `snake_case` with
 
 1. **WP proof of merge/split under the array model** — the canonical-form
    postcondition after `as_canonicalize` and the index-shift loops are the
-   hardest goals. Mitigation: prove primitives in isolation with tight
-   `assigns`; keep merge a single bounded pass; ghost state only if needed.
+   hardest goals. This risk **materialized** as predicted: the index-shift and
+   per-VMA framing goals were discharged (tight `assigns`, element-shift
+   postconditions, a `low_is_mod` proof script), but the *canonical-form*
+   postcondition of `as_canonicalize` — "a quantified property over all array
+   cells survives a one-field write" — is not closable by Alt-Ergo/Z3 in WP's
+   integer memory model without hand-built interactive (TIP) scripts or an
+   array-update lemma. It is the documented open item (§B.2, §H/M2); the
+   property is enforced at runtime by `as_check_wf`/`ASSERT_WF`.
 2. **Page-alignment / address overflow** — guarded by `add_overflows` /
    `round_up_overflows` plus RTE; rejected before use.
 3. **Toolchain absence / restricted network** — the two-tier harness keeps
@@ -213,7 +219,15 @@ overflow guards before every page computation). Naming: `snake_case` with
 - **M0** foundation & harness (scaffolding, Makefile, verify/bootstrap, agents,
   docs). ✅
 - **M1** core VMA model + invariants + unit tests, `ASSERT_WF` everywhere. ✅
-- **M2** ACSL contracts + WP proofs (runs when frama-c available; contracts
-  authored now). 🟡 contracts in place; proof discharge pending a prover.
+- **M2** ACSL contracts + WP proofs. ✅ **`make proof PROOF_REQUIRE_WP=1`
+  discharges 658/658 goals** (zero Timeout/Unknown/Failed), reproducible from a
+  fresh clone (the only committed proof artifact is the `low_is_mod` script;
+  the prover cache is regenerated). This covers all RTE/memory-safety goals,
+  the strengthened primitive postconditions, and `requires as_wf(as)` +
+  `ensures 0 <= count <= VMA_CAP` (the count clause of the invariant) on the
+  three public ops. The **geometric clause** of `ensures as_wf`
+  (sorted + disjoint + canonical, not just count) remains open — see §B.2; it
+  is a known hard goal blocked by SMT array-framing limits, runtime-covered by
+  `ASSERT_WF`.
 - **M3** ld.so replay + conformance. ✅
 - **M4** polish/docs, CI-ready `verify.sh`. ✅
