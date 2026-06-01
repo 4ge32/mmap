@@ -333,15 +333,19 @@ static int any_vma_has_id(const struct addr_space *as, uint32_t id)
 }
 
 /*
- * M5 Scenario — dlclose-style unload via mm_munmap_object. Load object1 (the
- * baseline 5-VMA object) and object2 adjacent above it (2 VMAs) for 7 total,
- * exactly as in Scenario B. Then unload each object as a single logical group
- * by its map_id, mirroring how a loader's dlclose drops every segment overlay
- * (text/rodata/data/bss) it mapped for that shared object in one shot.
+ * M5 Scenario — dlclose-style whole-object unload via mm_munmap_object. Load
+ * object1 (the baseline 5-VMA object), then build object2 as a GENUINELY
+ * multi-segment shared object whose segments all share ONE map_id, using
+ * mm_mmap_obj to JOIN each overlay to the object group. This mirrors how a
+ * loader gives every PT_LOAD overlay (text/rodata/data/bss) of one shared
+ * object a single logical identity, so that dlclose drops them in one call.
  *
- * Because object2 here is a single MAP_FIXED overlay (one map_id), one
- * mm_munmap_object call removes its whole footprint and leaves object1 byte-for
- * byte intact. The op is idempotent: unloading an unused id is a no-op.
+ * object2 is at least two distinct-prot, non-coalescing VMAs (R|X text +
+ * R|W data with a PROT_NONE alignment gap between them), all carrying the same
+ * shared map_id. A SINGLE mm_munmap_object(obj2_id) call must then drop EVERY
+ * object2 segment at once — the assertion the old single-VMA test could not
+ * make — while object1 stays byte-for-byte intact. The op is idempotent:
+ * unloading an unused id is a no-op.
  */
 static void test_ldso_unload_object(void)
 {
@@ -350,6 +354,7 @@ static void test_ldso_unload_object(void)
 
     const uint64_t b1 = 0x40000000ULL;
     const uint64_t b2 = b1 + 7 * PG;             /* object2 reservation base */
+    const uint32_t OBJ2_ID = 1000u;              /* explicit unused shared id  */
 
     /* Object1: baseline five-step load -> 5 VMAs sharing object1's id space. */
     load_object1_at(&as, b1);
@@ -359,27 +364,57 @@ static void test_ldso_unload_object(void)
     for (size_t k = 0; k < 5; k++)
         obj1[k] = as.vmas[k];
 
-    /* Object2: a single MAP_FIXED file-backed overlay above object1, so its
-     * entire footprint carries ONE fresh map_id. */
-    ASSERT_STATUS(mm_mmap(&as, b2, 2 * PG, PROT_READ | PROT_EXEC,
-                          MAP_FIXED | MAP_PRIVATE, VMA_FILE, FD_OBJ2, 0, &out), MM_OK);
-    ASSERT_WF(as);
-    ASSERT_EQ_U64(as.count, 6);
-
-    /* Capture object2's map_id at its base; it must differ from every object1
-     * VMA's id (distinct per-object identity). */
-    int ib2 = vma_index_at(&as, b2);
-    ASSERT_TRUE(ib2 >= 0);
-    const uint32_t obj2_id = as.vmas[ib2].map_id;
+    /* OBJ2_ID is an explicit constant id we know object1 never used (object1's
+     * ids were minted by next_map_id and stay below it). Confirm it is unused. */
     for (size_t k = 0; k < 5; k++)
-        ASSERT_TRUE(obj1[k].map_id != obj2_id);
+        ASSERT_TRUE(obj1[k].map_id != OBJ2_ID);
+    ASSERT_TRUE(as.next_map_id <= OBJ2_ID);
 
-    /* dlclose(object2): one bulk unmap by map_id drops its whole footprint and
-     * restores object1's exact 5-VMA layout. */
-    ASSERT_STATUS(mm_munmap_object(&as, obj2_id), MM_OK);
+    /* Object2: a genuine multi-segment object. Every segment is stamped with the
+     * SAME shared map_id (OBJ2_ID) via mm_mmap_obj, so the whole object is one
+     * logical group. Segments are chosen so they do NOT coalesce:
+     *   - reservation:  [b2,       b2+5P)  PROT_NONE anon  (covers the gap)
+     *   - text overlay:  [b2+0,     b2+2P)  R|X  file       (segment 1)
+     *   - data overlay:  [b2+3P,    b2+5P)  R|W  file       (segment 2)
+     * The untouched [b2+2P, b2+3P) alignment gap stays PROT_NONE, keeping text
+     * and data as distinct VMAs. */
+    ASSERT_STATUS(mm_mmap_obj(&as, b2, 5 * PG, PROT_NONE,
+                              MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+                              VMA_ANON, -1, 0, OBJ2_ID, &out), MM_OK);
     ASSERT_WF(as);
-    ASSERT_EQ_U64(as.count, 5);
-    ASSERT_FALSE(any_vma_has_id(&as, obj2_id));   /* no surviving object2 VMA */
+    ASSERT_STATUS(mm_mmap_obj(&as, b2 + 0, 2 * PG, PROT_READ | PROT_EXEC,
+                              MAP_FIXED | MAP_PRIVATE, VMA_FILE, FD_OBJ2, 0,
+                              OBJ2_ID, &out), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_STATUS(mm_mmap_obj(&as, b2 + 3 * PG, 2 * PG, PROT_READ | PROT_WRITE,
+                              MAP_FIXED | MAP_PRIVATE, VMA_FILE, FD_OBJ2, 3 * PG,
+                              OBJ2_ID, &out), MM_OK);
+    ASSERT_WF(as);
+
+    /* Object2 is genuinely multiple VMAs (text, gap, data => 3), and every VMA
+     * carrying OBJ2_ID is one of object2's own segments. Count them. */
+    size_t obj2_count = 0;
+    for (size_t k = 0; k < as.count; k++)
+        if (as.vmas[k].map_id == OBJ2_ID)
+            obj2_count++;
+    ASSERT_TRUE(obj2_count >= 2);                 /* multi-segment, not one VMA */
+    ASSERT_EQ_U64(as.count, 5 + obj2_count);
+
+    /* Every object2 VMA shares the one OBJ2_ID, distinct from every object1 id. */
+    for (size_t k = 0; k < 5; k++)
+        ASSERT_TRUE(obj1[k].map_id != OBJ2_ID);
+    ASSERT_TRUE(any_vma_has_id(&as, OBJ2_ID));
+
+    /* ---- THE KEY ASSERTION ----
+     * dlclose(object2): a SINGLE mm_munmap_object(OBJ2_ID) call drops ALL of
+     * object2's segments (text + data, the >=2 VMAs above) in one shot. This
+     * proves whole multi-segment object teardown by map_id — the case the old
+     * single-VMA object2 could never exercise. Count drops by exactly object2's
+     * VMA count, no surviving VMA carries OBJ2_ID, and object1 is intact. */
+    ASSERT_STATUS(mm_munmap_object(&as, OBJ2_ID), MM_OK);
+    ASSERT_WF(as);
+    ASSERT_EQ_U64(as.count, 5);                   /* (5 + obj2_count) - obj2_count */
+    ASSERT_FALSE(any_vma_has_id(&as, OBJ2_ID));   /* no surviving object2 segment */
 
     /* Object1 is untouched: every VMA's bounds/prot/backing/map_id preserved. */
     for (size_t k = 0; k < 5; k++) {
@@ -390,19 +425,11 @@ static void test_ldso_unload_object(void)
         ASSERT_EQ_U64(as.vmas[k].map_id, obj1[k].map_id);
     }
 
-    /* dlclose(object1): each baseline step stamped its own map_id, so removing
-     * one id only drops that step's VMA(s). Unload every object1 id to fully
-     * tear the object down (the RELRO split shares the data overlay's id). */
-    const uint32_t obj1_ids = as.next_map_id;     /* upper bound on ids so far */
-    for (uint32_t id = 0; id < obj1_ids; id++)
-        ASSERT_STATUS(mm_munmap_object(&as, id), MM_OK);
-    ASSERT_WF(as);
-    ASSERT_EQ_U64(as.count, 0);
-
-    /* Idempotent: unloading an unused id on an already-empty space is a no-op. */
+    /* Idempotent: unloading an unused id is a no-op (object1 still 5 VMAs). */
     ASSERT_STATUS(mm_munmap_object(&as, 9999), MM_OK);
     ASSERT_WF(as);
-    ASSERT_EQ_U64(as.count, 0);
+    ASSERT_EQ_U64(as.count, 5);
+    ASSERT_FALSE(any_vma_has_id(&as, OBJ2_ID));
 }
 
 int main(void)

@@ -158,7 +158,7 @@
     {
       "id": "REQ-LDSO-UNLOAD",
       "category": "LDSO",
-      "title": "dlclose-style teardown: mm_munmap_object removes every VMA of one object by map_id in one call, leaves other objects intact, and is idempotent on unused ids",
+      "title": "dlclose-style teardown: mm_munmap_object removes every segment VMA of one multi-segment object (segments grouped under a shared map_id via mm_mmap_obj) by map_id in one call, leaves other objects intact, and is idempotent on unused ids",
       "source": "docs/ldso_sequence.md#scenario-b-multi-object-load-two-shared-objects",
       "tests": [
         "dlclose-style mm_munmap_object unloads one object by map_id (idempotent)"
