@@ -38,16 +38,36 @@ static void test_anon_place_and_merge(void)
     ASSERT_STATUS(mm_mmap(&as, 0, 2 * PG, PROT_READ,
                           MAP_PRIVATE | MAP_ANONYMOUS, VMA_ANON, -1, 0, &a), MM_OK);
     ASSERT_WF(as);
-    /* a second adjacent identical mapping placed right below should merge */
+    /* A second adjacent identical mapping placed right below is a DISTINCT
+     * logical mapping (its own map_id), so it stays separate even though it is
+     * otherwise compatible — faithful to per-object boundaries. */
     ASSERT_STATUS(mm_mmap(&as, a - 2 * PG, 2 * PG, PROT_READ,
                           MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
                           VMA_ANON, -1, 0, &b), MM_OK);
     ASSERT_WF(as);
     ASSERT_EQ_U64(b, a - 2 * PG);
-    /* merged into a single VMA */
-    ASSERT_EQ_U64(as.count, 1);
+    /* two adjacent-but-distinct VMAs, not coalesced */
+    ASSERT_EQ_U64(as.count, 2);
     ASSERT_EQ_U64(as.vmas[0].start, a - 2 * PG);
-    ASSERT_EQ_U64(as.vmas[0].end, a + 2 * PG);
+    ASSERT_EQ_U64(as.vmas[0].end, a);
+    ASSERT_EQ_U64(as.vmas[1].start, a);
+    ASSERT_EQ_U64(as.vmas[1].end, a + 2 * PG);
+    /* the two halves of a SINGLE mapping, however, do re-merge: split one and
+     * confirm canonicalization collapses it back via the shared map_id. */
+    struct addr_space one; as_init(&one);
+    uint64_t c;
+    ASSERT_STATUS(mm_mmap(&one, 0x500000000ULL, 4 * PG, PROT_READ,
+                          MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+                          VMA_ANON, -1, 0, &c), MM_OK);
+    ASSERT_EQ_U64(one.count, 1);
+    /* mprotect the middle to a different prot then back: the split halves share
+     * one map_id and re-merge to a single VMA. */
+    ASSERT_STATUS(mm_mprotect(&one, c + PG, 2 * PG, PROT_READ | PROT_WRITE), MM_OK);
+    ASSERT_WF(one);
+    ASSERT_EQ_U64(one.count, 3);
+    ASSERT_STATUS(mm_mprotect(&one, c + PG, 2 * PG, PROT_READ), MM_OK);
+    ASSERT_WF(one);
+    ASSERT_EQ_U64(one.count, 1);
 }
 
 static void test_fixed_overlay_split(void)

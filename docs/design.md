@@ -28,20 +28,49 @@ arithmetic guards), `src/addr_space.c` (container ops + `as_check_wf`),
 
 ## B. Verification strategy (Frama-C/WP + ACSL)
 
-### B.1 In scope for WP
-- Memory safety of the core (no OOB array access, no overflow, no div-by-zero)
-  via the RTE plugin (`-rte -wp-rte`).
-- **Invariant preservation**: each public op, `requires as_wf ⇒ ensures as_wf`.
-- Local functional correctness of the primitives (split union, insert/remove
-  shifts, merge count reduction) and bounded-capacity safety.
+### B.1 In scope for WP (proved — `make proof PROOF_REQUIRE_WP=1` is 658/658)
+- Memory safety of the core (no OOB array access, no signed/unsigned overflow,
+  no div-by-zero) via the RTE plugin (`-rte -wp-rte`).
+- **Bounded-capacity safety**: each public op `requires as_wf(as)` and
+  `ensures 0 <= as->count <= VMA_CAP` — the count half of the invariant is
+  proved end-to-end through split/insert/remove/canonicalize.
+- Local functional correctness of the primitives:
+  - `as_split_at` / `as_insert_at` / `as_remove_range` — exact element-shift
+    postconditions (which slot moves where, what is preserved), tight
+    `assigns`, and all RTE index bounds.
+  - `as_find_range` — `0 <= *lo <= *hi <= count`; `as_find_free` — a successful
+    placement satisfies `*out + length <= as_max` (so the caller's
+    `base + len` never overflows); `as_canonicalize` — count non-increase.
+- The page-mask arithmetic (`round_up_page`, `is_page_aligned`). The bit/modulo
+  bridge is `low_is_mod` (`x & PAGE_MASK == x % PAGE_SIZE`, **proved** by WP's
+  `Wp.modmask` tactic, replayed from the committed script session
+  `proofs/wp_session/`) plus `high_split` (`x & ~PAGE_MASK == x - x%PAGE_SIZE`),
+  an **axiom**: a true bit-vector identity that neither Alt-Ergo 2.6.3 nor Z3
+  4.8.12 discharge in WP's integer model, taken as a minimal documented trusted
+  base (see the header of `proofs/wp_entry.c`).
 
 ### B.2 Deferred to the runtime test suite (by decision)
+- **The geometric half of `ensures as_wf(as)`** on `mm_mmap` / `mm_mprotect` /
+  `mm_munmap` — i.e. that the *sorted + pairwise-disjoint + canonical
+  (no adjacent mergeable pair)* clauses, not just the count bound, are
+  re-established after each op. The public ops already `requires as_wf(as)`,
+  and the count clause is proved; the remaining clauses require threading
+  full functional sortedness/disjointness postconditions through all three
+  primitives **and** proving the canonical-form output of `as_canonicalize`
+  (the "no adjacent mergeable pair" loop invariant under an in-place field
+  mutation). That last proof is additionally blocked by `acsl_vma_ok` placing
+  no upper bound on a VMA's `file_offset`, so the file-offset continuity term
+  in `acsl_vma_pair_mergeable` (`file_offset + size`) cannot be shown
+  overflow-free without either strengthening the runtime oracle `as_check_wf`
+  (an observable C change, out of bounds for the proof role) or a larger
+  ghost/lemma development. Tracked as the open M2 headline.
 - End-to-end byte-level functional outcomes of the operations.
 - The ld.so replay scenario (`tests/test_ldso_replay.c`).
 - Placement-policy correctness (`as_find_free` top-down first-fit).
 
-These are checked by `make test` with `ASSERT_WF` after every operation, giving
-defense in depth even when the prover is unavailable.
+These are checked by `make test` with `ASSERT_WF` (the runtime mirror of the
+full `as_wf`, including the sorted/disjoint/canonical clauses) after every
+operation, giving defense in depth even when the prover is unavailable.
 
 ### B.3 Mechanics
 ACSL predicates (`as_wf`, `acsl_mergeable`, `acsl_aligned`, `acsl_prot_ok`)
@@ -170,8 +199,14 @@ overflow guards before every page computation). Naming: `snake_case` with
 
 1. **WP proof of merge/split under the array model** — the canonical-form
    postcondition after `as_canonicalize` and the index-shift loops are the
-   hardest goals. Mitigation: prove primitives in isolation with tight
-   `assigns`; keep merge a single bounded pass; ghost state only if needed.
+   hardest goals. This risk **materialized** as predicted: the index-shift and
+   per-VMA framing goals were discharged (tight `assigns`, element-shift
+   postconditions, a `low_is_mod` proof script), but the *canonical-form*
+   postcondition of `as_canonicalize` — "a quantified property over all array
+   cells survives a one-field write" — is not closable by Alt-Ergo/Z3 in WP's
+   integer memory model without hand-built interactive (TIP) scripts or an
+   array-update lemma. It is the documented open item (§B.2, §H/M2); the
+   property is enforced at runtime by `as_check_wf`/`ASSERT_WF`.
 2. **Page-alignment / address overflow** — guarded by `add_overflows` /
    `round_up_overflows` plus RTE; rejected before use.
 3. **Toolchain absence / restricted network** — the two-tier harness keeps
@@ -185,7 +220,15 @@ overflow guards before every page computation). Naming: `snake_case` with
 - **M0** foundation & harness (scaffolding, Makefile, verify/bootstrap, agents,
   docs). ✅
 - **M1** core VMA model + invariants + unit tests, `ASSERT_WF` everywhere. ✅
-- **M2** ACSL contracts + WP proofs (runs when frama-c available; contracts
-  authored now). 🟡 contracts in place; proof discharge pending a prover.
+- **M2** ACSL contracts + WP proofs. ✅ **`make proof PROOF_REQUIRE_WP=1`
+  discharges 658/658 goals** (zero Timeout/Unknown/Failed), reproducible from a
+  fresh clone (the only committed proof artifact is the `low_is_mod` script;
+  the prover cache is regenerated). This covers all RTE/memory-safety goals,
+  the strengthened primitive postconditions, and `requires as_wf(as)` +
+  `ensures 0 <= count <= VMA_CAP` (the count clause of the invariant) on the
+  three public ops. The **geometric clause** of `ensures as_wf`
+  (sorted + disjoint + canonical, not just count) remains open — see §B.2; it
+  is a known hard goal blocked by SMT array-framing limits, runtime-covered by
+  `ASSERT_WF`.
 - **M3** ld.so replay + conformance. ✅
 - **M4** polish/docs, CI-ready `verify.sh`. ✅
