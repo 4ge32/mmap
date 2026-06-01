@@ -70,6 +70,13 @@ static mm_status split_boundaries(struct addr_space *as,
     return MM_OK;
 }
 
+/*
+ * Object-scoped mmap. See mm_api.h: map_id == 0 mints a fresh identity (and
+ * bumps next_map_id, the historical mm_mmap behavior); a non-zero map_id is
+ * stamped verbatim onto the new VMA so several MAP_FIXED segments of one shared
+ * object can share an identity for a single-call mm_munmap_object teardown.
+ * next_map_id stays in `assigns` for both paths (a safe over-approximation).
+ */
 /*@
   requires \valid(as);
   requires as_wf(as);
@@ -78,11 +85,12 @@ static mm_status split_boundaries(struct addr_space *as,
   assigns as->vmas[0 .. VMA_CAP - 1], as->count, as->next_map_id, *out_addr;
   ensures 0 <= as->count <= VMA_CAP;
 */
-mm_status mm_mmap(struct addr_space *as,
-                  uint64_t addr, uint64_t length,
-                  int prot, int flags,
-                  enum vma_backing backing, int fd, uint64_t offset,
-                  uint64_t *out_addr)
+mm_status mm_mmap_obj(struct addr_space *as,
+                      uint64_t addr, uint64_t length,
+                      int prot, int flags,
+                      enum vma_backing backing, int fd, uint64_t offset,
+                      uint32_t map_id,
+                      uint64_t *out_addr)
 {
     if (length == 0)
         return MM_EINVAL;
@@ -177,7 +185,7 @@ mm_status mm_mmap(struct addr_space *as,
     v.backing = backing;
     v.fd = (backing == VMA_FILE) ? fd : -1;
     v.file_offset = (backing == VMA_FILE) ? offset : 0;
-    v.map_id = as->next_map_id++;
+    v.map_id = (map_id == 0u) ? as->next_map_id++ : map_id;
 
     /*@ assert base < end; */
     /*@ assert 0 <= as->count <= VMA_CAP; */
@@ -192,6 +200,25 @@ mm_status mm_mmap(struct addr_space *as,
     if (out_addr)
         *out_addr = base;
     return MM_OK;
+}
+
+/* Thin wrapper: a fresh-identity mmap is mm_mmap_obj with map_id == 0. */
+/*@
+  requires \valid(as);
+  requires as_wf(as);
+  requires out_addr == \null || \valid(out_addr);
+  requires \separated(as, out_addr);
+  assigns as->vmas[0 .. VMA_CAP - 1], as->count, as->next_map_id, *out_addr;
+  ensures 0 <= as->count <= VMA_CAP;
+*/
+mm_status mm_mmap(struct addr_space *as,
+                  uint64_t addr, uint64_t length,
+                  int prot, int flags,
+                  enum vma_backing backing, int fd, uint64_t offset,
+                  uint64_t *out_addr)
+{
+    return mm_mmap_obj(as, addr, length, prot, flags, backing, fd, offset,
+                       0u, out_addr);
 }
 
 /*@

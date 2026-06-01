@@ -35,6 +35,35 @@ mm_status mm_mmap(struct addr_space *as,
                   enum vma_backing backing, int fd, uint64_t offset,
                   uint64_t *out_addr);
 
+/*
+ * Create a mapping, choosing its object identity (map_id).
+ *
+ * Identical to mm_mmap in every respect (placement, MAP_FIXED/
+ * MAP_FIXED_NOREPLACE overlay, canonicalize) except for how the new VMA's
+ * map_id is assigned:
+ *
+ *   map_id == 0 : allocate a fresh identity (as->next_map_id++), exactly like
+ *                 mm_mmap. Use this for the first segment of a new object.
+ *   map_id != 0 : stamp the new VMA with exactly this id and do NOT bump
+ *                 next_map_id. Use this to JOIN an existing object group so
+ *                 that a single mm_munmap_object(map_id) can later unload all
+ *                 of an object's segments (text/rodata/data/bss) at once.
+ *
+ * Contract for a non-zero map_id: callers must pass either 0 (fresh) or an id
+ * obtained from a prior fresh mapping in the SAME address space (e.g. read
+ * back from as.vmas[k].map_id of the object's reservation). No dedup is
+ * performed, so reusing an id minted by next_map_id of a different object
+ * would conflate the two objects.
+ *
+ * mm_mmap(...) is exactly mm_mmap_obj(..., 0u, out_addr).
+ */
+mm_status mm_mmap_obj(struct addr_space *as,
+                      uint64_t addr, uint64_t length,
+                      int prot, int flags,
+                      enum vma_backing backing, int fd, uint64_t offset,
+                      uint32_t map_id,
+                      uint64_t *out_addr);
+
 /* Change protection on [addr, addr+length). The whole range must be mapped
  * (a gap yields MM_ENOMEM). Splits and re-merges as needed. */
 mm_status mm_mprotect(struct addr_space *as,
