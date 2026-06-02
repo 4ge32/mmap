@@ -14,7 +14,7 @@ WP, with the RTE plugin (`-rte -wp-rte`), additionally discharges runtime-error
 obligations: no out-of-bounds array access, no signed/unsigned overflow in the
 page arithmetic, no division by zero.
 
-Current status: `make proof PROOF_REQUIRE_WP=1` discharges **658 / 658** goals
+Current status: `make proof PROOF_REQUIRE_WP=1` discharges **857 / 857** goals
 (zero Timeout/Unknown/Failed). All three public ops carry `requires as_wf(as)`
 and prove `ensures 0 <= as->count <= VMA_CAP` end-to-end, plus the strengthened
 primitive postconditions and all RTE goals. The *geometric* half of

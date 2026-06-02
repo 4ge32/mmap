@@ -28,7 +28,7 @@ arithmetic guards), `src/addr_space.c` (container ops + `as_check_wf`),
 
 ## B. Verification strategy (Frama-C/WP + ACSL)
 
-### B.1 In scope for WP (proved — `make proof PROOF_REQUIRE_WP=1` is 658/658)
+### B.1 In scope for WP (proved — `make proof PROOF_REQUIRE_WP=1` is 857/857)
 - Memory safety of the core (no OOB array access, no signed/unsigned overflow,
   no div-by-zero) via the RTE plugin (`-rte -wp-rte`).
 - **Bounded-capacity safety**: each public op `requires as_wf(as)` and
@@ -221,7 +221,8 @@ overflow guards before every page computation). Naming: `snake_case` with
   docs). ✅
 - **M1** core VMA model + invariants + unit tests, `ASSERT_WF` everywhere. ✅
 - **M2** ACSL contracts + WP proofs. ✅ **`make proof PROOF_REQUIRE_WP=1`
-  discharges 658/658 goals** (zero Timeout/Unknown/Failed), reproducible from a
+  discharged 658/658 goals at M2 close** (857/857 today after the M3–M5 ops;
+  zero Timeout/Unknown/Failed), reproducible from a
   fresh clone (the only committed proof artifact is the `low_is_mod` script;
   the prover cache is regenerated). This covers all RTE/memory-safety goals,
   the strengthened primitive postconditions, and `requires as_wf(as)` +
@@ -236,11 +237,15 @@ overflow guards before every page computation). Naming: `snake_case` with
   `MAP_FIXED_NOREPLACE` (activates `MM_EEXIST`), `mm_mremap`
   (shrink / grow-in-place / `MREMAP_MAYMOVE` move), and `mm_munmap_object`
   (dlclose-style bulk unmap by `map_id`, with a proven *no surviving map_id*
-  postcondition). Coverage expanded to 29 tests / 672 checks across the suites
-  (incl. the new ops and the previously-thin edges: middle-page munmap split,
-  mprotect re-merge, `as_find_free` exhaustion, AS_MAX boundary, sub-page
-  round-up, file contiguity). WP stays green: **`make proof
-  PROOF_REQUIRE_WP=1` discharges 842/842** at the same bar as the original ops
-  (count clause + all RTE; the geometric `ensures as_wf` remains the M2 open
+  postcondition) plus the object-scoped `mm_mmap_obj` entry that lets a loader
+  group every segment overlay of one shared object under a single `map_id`, so
+  `mm_munmap_object` models a true multi-segment dlclose. Coverage expanded to
+  29 tests / 676 checks across the suites (incl. the new ops and the
+  previously-thin edges: middle-page munmap split, mprotect re-merge,
+  `as_find_free` exhaustion, AS_MAX boundary, sub-page round-up, file
+  contiguity, and the multi-segment whole-object unload). WP stays green:
+  **`make proof PROOF_REQUIRE_WP=1` discharges 857/857** at the same bar as the
+  original ops (count clause + all RTE; this also covers the `mm_mremap`
+  file-offset overflow guard; the geometric `ensures as_wf` remains the M2 open
   item). Each new op is animated in the inline visualizer (see
   `docs/mmap_model_spec.md`).
